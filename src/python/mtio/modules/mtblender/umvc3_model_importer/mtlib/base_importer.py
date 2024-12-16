@@ -226,8 +226,10 @@ class ModelImporterBase(ABC):
                 except Exception as e:
                     self.logger.error( 'failed to convert TEX file to DDS' )
                     self.logger.exception( e )
+                    return None
                         
-            return self.createTexture( textureDDSPath )
+                return self.createTexture( textureDDSPath )
+            return None
 
     def loadMetadata( self, path ):
         metadata = ModelMetadata()
