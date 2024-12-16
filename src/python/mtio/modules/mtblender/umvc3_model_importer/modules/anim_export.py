@@ -890,21 +890,40 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 keycount += 1
                                                 KeyedT = True
                                                 
-                                                FramesL.append(index)
-                                                KeysL.append(trans_basis_quat)
-                                                KeyTypesL.append("location")
-                                                FrameText = bone.name
-                                                if bone.name == 'jnt_255':                                                    
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                if self.export_legacy == True:
+
+                                                    FramesL.append(index)
+                                                    KeysL.append(trans_basis_quat)
+                                                    KeyTypesL.append("location")
+                                                    FrameText = bone.name
+                                                    
                                                     KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
-                                                else:
-                                                    FrameText = metadata.getJointByName(FrameText)
-                                                    FrameText = FrameText.id
-                                                    KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)     
-                                                if(bone.name == "jnt_255"):
-                                                    TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
-                                                else:
-                                                    TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
+                                                    if(bone.name == "jnt_255"):
+                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
+                                                    else:
+                                                        FrameText = metadata.getJointByName(FrameText)
+                                                        FrameText = FrameText.id
+                                                        TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
+
+                                                else:    
+
+                                                    FramesL.append(index)
+                                                    KeysL.append(trans_basis_quat)
+                                                    KeyTypesL.append("location")
+                                                    FrameText = bone.name                                                    
+                                                    #KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
+                                                    
+                                                    if(bone.name == "jnt_255"):
+                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
+                                                        TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
+                                                    else:
+                                                        FrameText = metadata.getJointByName(FrameText)
+                                                        FrameText = FrameText.id
+                                                        NewX = -1 * trans_basis_vec.x
+                                                        KeyToInsert = data(trans_basis_vec.y,NewX,trans_basis_vec.z,0)
+                                                        TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
 
 
                                             #gen_track(bone.name,0,bone,trans_basis_vec, index)                                                                                            
@@ -1095,21 +1114,39 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 keycount += 1
                                                 KeyedR = True
 
-                                                FramesS.append(index)
-                                                KeysS.append(scale_basis_quat)
-                                                KeyTypesS.append("rotation_quaternion")
-                                                FrameText = bone.name
-                                                if bone.name == 'jnt_255':                                                    
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
-                                                    KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
+                                                if self.export_legacy == True:
+
+                                                    FramesS.append(index)
+                                                    KeysS.append(scale_basis_quat)
+                                                    KeyTypesS.append("rotation_quaternion")
+                                                    FrameText = bone.name
+
+                                                    if(bone.name == "jnt_255"):
+                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
+                                                        TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
+                                                    else:
+                                                        FrameText = metadata.getJointByName(FrameText)
+                                                        FrameText = FrameText.id
+                                                        KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
+                                                        TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))          
+
                                                 else:
-                                                    FrameText = metadata.getJointByName(FrameText)
-                                                    FrameText = FrameText.id
-                                                    KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
-                                                if(bone.name == "jnt_255"):
-                                                    TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
-                                                else:
-                                                    TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))                                          
+                                                    FramesS.append(index)
+                                                    KeysS.append(scale_basis_quat)
+                                                    KeyTypesS.append("rotation_quaternion")
+                                                    FrameText = bone.name
+                                                    
+                                                    if(bone.name == "jnt_255"):
+                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)                                                        
+                                                        TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
+                                                    else:
+                                                        FrameText = metadata.getJointByName(FrameText)
+                                                        FrameText = FrameText.id
+                                                        NewX = -1 * rot_basis_vec.x
+                                                        KeyToInsert = data(rot_basis_vec.y,NewX,rot_basis_vec.z,rot_basis_vec.w)
+                                                        TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))                                      
                                         
                                                                                                                                                                                 
                     
@@ -1275,16 +1312,35 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 keycount += 1
                                                 KeyedT = True
                                                 
-                                                FramesL.append(index)
-                                                KeysL.append(trans_basis_quat)
-                                                KeyTypesL.append("location")
-                                                FrameText = bone.name
-                                                FrameText = FrameText.replace(FrameText[:4], '')
-                                                KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
-                                                if(bone.name == "jnt_255"):
-                                                    TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
-                                                else:
-                                                    TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
+                                                if self.export_legacy == True:
+
+                                                    FramesL.append(index)
+                                                    KeysL.append(trans_basis_quat)
+                                                    KeyTypesL.append("location")
+                                                    FrameText = bone.name
+                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
+                                                    if(bone.name == "jnt_255"):
+                                                        TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
+                                                    else:
+                                                        TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
+
+                                                else:    
+
+                                                    FramesL.append(index)
+                                                    KeysL.append(trans_basis_quat)
+                                                    KeyTypesL.append("location")
+                                                    FrameText = bone.name
+                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    #KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
+
+                                                    if(bone.name == "jnt_255"):
+                                                        KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
+                                                        TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
+                                                    else:
+                                                        NewX = -1 * trans_basis_vec.x
+                                                        KeyToInsert = data(trans_basis_vec.y,NewX,trans_basis_vec.z,0)
+                                                        TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
 
 
                                             #gen_track(bone.name,0,bone,trans_basis_vec, index)                                                                                            
@@ -1468,17 +1524,33 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 keycount += 1
                                                 KeyedR = True
 
-                                                FramesS.append(index)
-                                                KeysS.append(scale_basis_quat)
-                                                KeyTypesS.append("rotation_quaternion")
-                                                FrameText = bone.name
-                                                FrameText = FrameText.replace(FrameText[:4], '')
-                                                KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
-                                                if(bone.name == "jnt_255"):
-                                                    TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
+                                                if self.export_legacy == True:
+
+                                                    FramesS.append(index)
+                                                    KeysS.append(scale_basis_quat)
+                                                    KeyTypesS.append("rotation_quaternion")
+                                                    FrameText = bone.name
+                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
+                                                    if(bone.name == "jnt_255"):
+                                                        TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
+                                                    else:
+                                                        TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))          
+
                                                 else:
-                                                    TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))                                          
-                                        
+                                                    FramesS.append(index)
+                                                    KeysS.append(scale_basis_quat)
+                                                    KeyTypesS.append("rotation_quaternion")
+                                                    FrameText = bone.name
+                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    if(bone.name == "jnt_255"):
+                                                        KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
+
+                                                        TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
+                                                    else:
+                                                        NewX = -1 * rot_basis_vec.x
+                                                        KeyToInsert = data(rot_basis_vec.y,NewX,rot_basis_vec.z,rot_basis_vec.w)
+                                                        TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))     
                                                                                                                                                                                 
                     
                 #print(bone.name)

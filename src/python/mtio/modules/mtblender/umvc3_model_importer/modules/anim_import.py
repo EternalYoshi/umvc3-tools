@@ -801,13 +801,24 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
-                        Frame = int(Keyframe['Frame'])
-                        joint.location = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
-                        print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+
+                        if joint.name == 'jnt_255':
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = ((float(Keyframe['data']['X'])), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
                         
-                        obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
-                                        (joint.name, "location"), frame=(Frame), group=AnimName)
-                        
+                        else:
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = (-(float(Keyframe['data']['Y'])), float(Keyframe['data']['X']), float(Keyframe['data']['Z']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
                                             
                     except Exception as sc:
                         print("Problem applying translation keyframe.",sc, "\n", traceback.format_exc())
@@ -821,7 +832,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     #Do Stuff here.
                     try:
                         Frame = int(Keyframe['Frame'])
-                        Thing = mathutils.Quaternion((float(Keyframe['data']['W']), float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z'])))
+                        Thing = mathutils.Quaternion((float(Keyframe['data']['W']), -(float(Keyframe['data']['Y'])), float(Keyframe['data']['X']), float(Keyframe['data']['Z'])))
                         print(Thing)                                                
                         joint.rotation_quaternion = Thing
                         print(joint.rotation_quaternion)
@@ -928,12 +939,23 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
-                        Frame = int(Keyframe['Frame'])
-                        joint.location = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
-                        print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                        if joint.name == 'jnt_255':
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = ((float(Keyframe['data']['X'])), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
                         
-                        obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
-                                        (f'jnt_{Bone}', "location"), frame=(Frame), group=AnimName)
+                        else:
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = (-(float(Keyframe['data']['Y'])), float(Keyframe['data']['X']), float(Keyframe['data']['Z']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
                         
                                             
                     except Exception as sc:
@@ -948,7 +970,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     #Do Stuff here.
                     try:
                         Frame = int(Keyframe['Frame'])
-                        Thing = mathutils.Quaternion((float(Keyframe['data']['W']), float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z'])))
+                        Thing = mathutils.Quaternion((float(Keyframe['data']['W']), -(float(Keyframe['data']['Y'])), float(Keyframe['data']['X']), float(Keyframe['data']['Z'])))
                         print(Thing)                                                
                         joint.rotation_quaternion = Thing
                         print(joint.rotation_quaternion)
@@ -1294,7 +1316,9 @@ class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
                 root_bone = bone                
                 copy_bone = obj.data.edit_bones.new("jnt_255")
                 copy_bone.length = root_bone.length
-                copy_bone.matrix = root_bone.matrix.copy()
+                #Proper Bone Settings for jnt_255.
+                copy_bone.roll = 0
+                #copy_bone.radius = 0.05
                 copy_bone.head[2] = 0
                 root_bone.parent = copy_bone
                 break
