@@ -1211,6 +1211,9 @@ class SUB_PT_Anim_Import(Panel):
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_add_joint_twofiftyfive', text = 'Add jnt_255 to Selected Armature')
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator('sub.mod_op_add_simple_ik', text = 'Add Standard IKs Selected Armature')
             layout.separator()            
             row = layout.row(align=True)
             row.operator(SUB_OP_anim_import.bl_idname, icon='IMPORT', text='Import Marvel 3 .yml Animation')
@@ -1325,3 +1328,209 @@ class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
         return {'FINISHED'}    
+    
+
+class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
+    bl_idname = 'sub.mod_op_add_simple_ik'
+    bl_label = "Add Simple IK to Armature" 
+
+    def execute(self,context):
+        scene = bpy.context.scene
+        #Stores the object selected.
+        obj = bpy.context.active_object
+
+        bpy.ops.object.mode_set(mode = 'EDIT', toggle=False)
+
+        edit_bones = obj.data.edit_bones
+
+        arm = scene.objects.get("Armature")
+
+        #Selects Leg & Knee Bones and moves them ever so slightly to ensure good bend.
+        edit_bones["jnt_16"].tail[1] = edit_bones["jnt_16"].tail[1] - 0.2
+        edit_bones["jnt_20"].tail[1] = edit_bones["jnt_20"].tail[1] - 0.2
+
+        edit_bones["jnt_17"].head[1] = edit_bones["jnt_17"].head[1] - 0.2
+        edit_bones["jnt_21"].head[1] = edit_bones["jnt_21"].head[1] - 0.2
+
+        #Checks for Twist Bones and moves them as well.
+        for bone in edit_bones:
+            if bone.name == "jnt_27":
+                print("Found bone 27.")
+                edit_bones["jnt_27"].head[1] = edit_bones["jnt_27"].head[1] - 0.2
+
+        for bone in edit_bones:
+            if bone.name == "jnt_42":
+                print("Found bone 42.")
+                edit_bones["jnt_42"].head[1] = edit_bones["jnt_42"].head[1] - 0.2
+
+        for bone in edit_bones:
+            if bone.name == "jnt_28":
+                print("Found bone 28.")
+                edit_bones["jnt_28"].head[1] = edit_bones["jnt_28"].head[1] - 0.2
+
+        for bone in edit_bones:
+            if bone.name == "jnt_44":
+                print("Found bone 44.")
+                edit_bones["jnt_44"].head[1] = edit_bones["jnt_44"].head[1] - 0.2
+
+
+        edit_bones["jnt_9"].tail[1] = edit_bones["jnt_9"].tail[1] + 0.25
+        edit_bones["jnt_13"].tail[1] = edit_bones["jnt_13"].tail[1] + 0.25
+
+        edit_bones["jnt_10"].head[1] = edit_bones["jnt_10"].head[1] + 0.25
+        edit_bones["jnt_14"].head[1] = edit_bones["jnt_14"].head[1] + 0.25
+
+        #Checks for Twist Bones and moves them as well.
+        for bone in edit_bones:
+            if bone.name == "jnt_33":
+                print("Found bone 33.")
+                edit_bones["jnt_33"].head[1] = edit_bones["jnt_33"].head[1] + 0.25
+
+        for bone in edit_bones:
+            if bone.name == "jnt_34":
+                print("Found bone 34.")
+                edit_bones["jnt_34"].head[1] = edit_bones["jnt_34"].head[1] + 0.25
+                
+
+        IK_FootL = obj.data.edit_bones.new("IK_FootL")
+        IK_FootL.head = edit_bones["jnt_18"].head
+        IK_FootL.tail = edit_bones["jnt_18"].head
+        IK_FootL.roll = edit_bones["jnt_18"].roll
+        IK_FootL.parent = edit_bones["jnt_255"]
+        IK_FootL.tail[1]= IK_FootL.tail[1] + 10
+        IK_FootL.color.palette = 'THEME15'
+
+        IK_FootR = obj.data.edit_bones.new("IK_FootR")
+        IK_FootR.head = edit_bones["jnt_22"].head
+        IK_FootR.tail = edit_bones["jnt_22"].head
+        IK_FootR.roll = edit_bones["jnt_22"].roll
+        IK_FootR.parent = edit_bones["jnt_255"]
+        IK_FootR.tail[1]= IK_FootR.tail[1] + 10
+        IK_FootR.color.palette = 'THEME01'
+                
+        IK_KneeL = obj.data.edit_bones.new("IK_KneeL")
+        IK_KneeL.head = edit_bones["jnt_17"].head
+        IK_KneeL.tail = edit_bones["jnt_17"].head
+        IK_KneeL.roll = math.radians(90)
+        IK_KneeL.parent = edit_bones["jnt_255"]
+        IK_KneeL.tail[1]= IK_KneeL.tail[1] - 20
+        IK_KneeL.head[1]= IK_KneeL.head[1] - 30
+        IK_KneeL.tail[1]= IK_KneeL.tail[1] - 30
+        IK_KneeL.color.palette = 'THEME03'		
+
+        IK_KneeR = obj.data.edit_bones.new("IK_KneeR")
+        IK_KneeR.head = edit_bones["jnt_21"].head
+        IK_KneeR.tail = edit_bones["jnt_21"].head
+        IK_KneeR.roll = math.radians(90)
+        IK_KneeR.parent = edit_bones["jnt_255"]
+        IK_KneeR.tail[1]= IK_KneeR.tail[1] - 20
+        IK_KneeR.head[1]= IK_KneeR.head[1] - 30
+        IK_KneeR.tail[1]= IK_KneeR.tail[1] - 30
+        IK_KneeR.color.palette = 'THEME01'		
+
+        IK_HandL = obj.data.edit_bones.new("IK_HandL")
+        IK_HandL.head = edit_bones["jnt_11"].head
+        IK_HandL.tail = edit_bones["jnt_11"].head
+        IK_HandL.roll = edit_bones["jnt_11"].roll
+        IK_HandL.parent = edit_bones["jnt_255"]
+        IK_HandL.tail[1]= IK_HandL.tail[1] + 10
+        IK_HandL.color.palette = 'THEME15'
+
+        IK_HandR = obj.data.edit_bones.new("IK_HandR")
+        IK_HandR.head = edit_bones["jnt_15"].head
+        IK_HandR.tail = edit_bones["jnt_15"].head
+        IK_HandR.roll = edit_bones["jnt_15"].roll
+        IK_HandR.parent = edit_bones["jnt_255"]
+        IK_HandR.tail[1]= IK_HandR.tail[1] + 10
+        IK_HandR.color.palette = 'THEME01'
+
+        IK_ElbowL = obj.data.edit_bones.new("IK_ElbowL")
+        IK_ElbowL.head = edit_bones["jnt_10"].head
+        IK_ElbowL.tail = edit_bones["jnt_10"].head
+        IK_ElbowL.roll = math.radians(180)
+        IK_ElbowL.parent = edit_bones["jnt_255"]
+        IK_ElbowL.tail[1]= IK_ElbowL.tail[1] + 20
+        IK_ElbowL.head[1]= IK_ElbowL.head[1] + 40
+        IK_ElbowL.tail[1]= IK_ElbowL.tail[1] + 40
+        IK_ElbowL.color.palette = 'THEME03'		
+
+        IK_ElbowR = obj.data.edit_bones.new("IK_ElbowR")
+        IK_ElbowR.head = edit_bones["jnt_14"].head
+        IK_ElbowR.tail = edit_bones["jnt_14"].head
+        IK_ElbowR.roll = math.radians(180)
+        IK_ElbowR.parent = edit_bones["jnt_255"]
+        IK_ElbowR.tail[1]= IK_ElbowR.tail[1] + 20
+        IK_ElbowR.head[1]= IK_ElbowR.head[1] + 40
+        IK_ElbowR.tail[1]= IK_ElbowR.tail[1] + 40
+        IK_ElbowR.color.palette = 'THEME01'		
+
+        #Takes care of parenting to IK bones.
+        edit_bones["jnt_18"].parent = IK_FootL
+        edit_bones["jnt_22"].parent = IK_FootR
+        edit_bones["jnt_11"].parent = IK_HandL
+        edit_bones["jnt_15"].parent = IK_HandR
+
+        bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
+        pose_bones = bpy.data.objects['Armature'].pose.bones
+
+        #Adds Constraints to Feet Bones.
+        LFootBone = pose_bones["jnt_18"]
+        clc = LFootBone.constraints.new('COPY_LOCATION')
+        clc.target = arm
+        clc.subtarget = pose_bones["jnt_17"].name
+        clc.head_tail = 1.0
+
+        RFootBone = pose_bones["jnt_22"]
+        rclc = RFootBone.constraints.new('COPY_LOCATION')
+        rclc.target = arm
+        rclc.subtarget = pose_bones["jnt_21"].name
+        rclc.head_tail = 1.0
+
+        LKneeBone = pose_bones["jnt_17"]
+        lik = LKneeBone.constraints.new('IK')
+        lik.target = arm
+        lik.subtarget = pose_bones["IK_FootL"].name
+        lik.pole_target = arm
+        lik.pole_subtarget = pose_bones["IK_KneeL"].name
+        lik.pole_angle = math.radians(180)
+        lik.chain_count = 2
+
+        RKneeBone = pose_bones["jnt_21"]
+        rik = RKneeBone.constraints.new('IK')
+        rik.target = arm
+        rik.subtarget = pose_bones["IK_FootR"].name
+        rik.pole_target = arm
+        rik.pole_subtarget = pose_bones["IK_KneeR"].name
+        rik.pole_angle = math.radians(180)
+        rik.chain_count = 2
+
+        LHandBone = pose_bones["jnt_11"]
+        lhclc = LHandBone.constraints.new('COPY_LOCATION')
+        lhclc.target = arm
+        lhclc.subtarget = pose_bones["jnt_10"].name
+        lhclc.head_tail = 1.0
+
+        RHandBone = pose_bones["jnt_15"]
+        rhclc = RHandBone.constraints.new('COPY_LOCATION')
+        rhclc.target = arm
+        rhclc.subtarget = pose_bones["jnt_14"].name
+        rhclc.head_tail = 1.0
+
+        LElbowBone = pose_bones["jnt_10"]
+        lelik = LElbowBone.constraints.new('IK')
+        lelik.target = arm
+        lelik.subtarget = pose_bones["IK_HandL"].name
+        lelik.pole_target = arm
+        lelik.pole_subtarget = pose_bones["IK_ElbowL"].name
+        lelik.chain_count = 2
+
+        RElbowBone = pose_bones["jnt_14"]
+        relik = RElbowBone.constraints.new('IK')
+        relik.target = arm
+        relik.subtarget = pose_bones["IK_HandR"].name
+        relik.pole_target = arm
+        relik.pole_subtarget = pose_bones["IK_ElbowR"].name
+        relik.chain_count = 2
+
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
+        return {'FINISHED'} 
