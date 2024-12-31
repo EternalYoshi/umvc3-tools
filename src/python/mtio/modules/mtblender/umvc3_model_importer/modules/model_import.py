@@ -107,6 +107,9 @@ class SUB_PT_Model_Import(Panel):
         row = layout.row(align=True)
         row.prop(mip, 'inherit_scale',text='Inherit Scale')
         
+        # row = layout.row(align=True)
+        # row.prop(mip, 'normalize_bone_length',text='Normalize Bone Length')
+
         layout.separator()
         row = layout.row(align=True)
         #row.operator(SUB_PT_MOD_OT_import.bl_idname, text='Import',)

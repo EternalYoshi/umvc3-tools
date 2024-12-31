@@ -992,7 +992,7 @@ def readM3AanimationData(self,context,filepath):
     global AnimGroups; AnimGroups = {}
     keycount = 0
     os.system('cls')
-    
+    PrevBoneID = -1
     print(self.files); print(filepath)
     
     #Stores the object selected.
@@ -1123,7 +1123,7 @@ def readM3AanimationData(self,context,filepath):
                     #This part applies it to the scene.
                     for id, Keyframe in enumerate(data_loaded.KeyFrames):
                         
-                        BID = data_loaded.KeyFrames[0]['BoneID']
+                        BID = data_loaded.KeyFrames[id]['BoneID']
 
                         #Checks if the bone exists on the Armature in the scene and will skip if it doesn't.
                         if bpy.data.objects["Armature"].data.bones.get(f'jnt_{BID}') is None:
@@ -1327,8 +1327,7 @@ class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
                 break
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
-        return {'FINISHED'}    
-    
+        return {'FINISHED'}       
 
 class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
     bl_idname = 'sub.mod_op_add_simple_ik'

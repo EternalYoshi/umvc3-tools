@@ -373,7 +373,6 @@ class ModelImporterBase(ABC):
                 
             self.editorMaterialArray.append( editorMaterial )
 
-
     def importEnvelopes( self ):
         self.logger.warn('importing envelopes skipped')
         

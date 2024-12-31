@@ -71,7 +71,7 @@ class BlenderNodeProxy(EditorNodeProxy):
         return self.node
 
     def getTransform(self):
-        return convertMatrix3ToNclMat44(self.node.matrix_world)
+        return convertMatrix3ToNclMat44(self.node.matrix_local)
 
     def getParent(self):
         return BlenderNodeProxy(self.node.parent)

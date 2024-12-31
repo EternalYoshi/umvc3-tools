@@ -92,7 +92,12 @@ class ModelImportProperties(PropertyGroup):
         name='Create_Collection',
         description='Creates a collection for the Imported Model.',
         default=True,
-    )                            
+    )
+    normalize_bone_length: BoolProperty(
+        name='Normalize Bone Length',
+        description='Disregards bone length values from model file when importing. May be necessary for good IK setups.',
+        default=False,
+    )                                
     flip_up_axis: BoolProperty(
         name='Flip Up Axis',
         description='Converts the Up Axis from Y-Up to Z-up.',
@@ -228,11 +233,11 @@ class ModelImportProperties(PropertyGroup):
         description='Converts Textures To .TEX files',
         default=True,
     )
-    export_bake_scale: BoolProperty(
-        name='Bake Scale Into Translation',
-        description='Bake scale of model in bones(Not cleanly working at the moment!)',
-        default=True,
-    )
+    # export_bake_scale: BoolProperty(
+    #     name='Bake Scale Into Translation',
+    #     description='Bake scale of model in bones(Not cleanly working at the moment!)',
+    #     default=True,
+    # )
     export_overwrite_textures: BoolProperty(
         name='Overwrite Existing Textures',
         description='Overwrites Existing Texture Files.',

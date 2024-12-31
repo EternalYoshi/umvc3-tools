@@ -250,7 +250,7 @@ class ModelExporterBase(ABC):
             return False
         return True
 
-    def getNodeLocalMtx( self, node: EditorNodeProxy ) -> Any:
+    def getNodeLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform()
         parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportNode( node.getParent() ) else nclCreateMat44()
         localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
@@ -263,13 +263,33 @@ class ModelExporterBase(ABC):
                 localMtx = self.transformMtx * localMtx
         return localMtx
 
+
+        # arma = bpy.data.objects['Armature']
+        # worldMtx = arma.matrix_world @ node.node.matrix
+        # if node.getParent() is not None and self.shouldExportNode( node.getParent()):
+        #     ParentNode = node.getParent()
+        #     parentWorldMtx = arma.matrix_world @ ParentNode.node.matrix
+        # else:
+        #     parentWorldMtx = nclCreateMat44()
+        # localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
+
+        # if mip.export_bake_scale:
+        #     localMtx[3] *= NclVec4((mip.export_model_scale, mip.export_model_scale, mip.export_model_scale, 1))
+        #     if node.getParent() is None or not self.shouldExportNode(node.getParent()):
+        #         localMtx = self.transformMtxNoScale * localMtx
+        # else:
+        #     if node.getParent() is None or not self.shouldExportNode(node.getParent()):
+        #         localMtx = self.transformMtx * localMtx
+        # return localMtx
+
+
     def getNodeWorldMtx( self, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform() 
         if self.config.exportBakeScale:
             worldMtx[3] *= NclVec4((self.config.exportScale, self.config.exportScale, self.config.exportScale, 1))
         return worldMtx
 
-    def processBone( self, editorNode: EditorNodeProxy ): 
+    def processBone( self, mip, editorNode: EditorNodeProxy ): 
         assert( editorNode.isBoneNode() )
 
         if editorNode.unwrap() in self.editorNodeToJointMap:
@@ -279,7 +299,7 @@ class ModelExporterBase(ABC):
         self.logger.info(f'processing bone: {editorNode.getName()}')
         jointMeta = self.metadata.getJointByName( editorNode.getName() )
         attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
-        localMtx = self.getNodeLocalMtx( editorNode )
+        localMtx = self.getNodeLocalMtx( mip, editorNode )
         
         joint = imJoint(
             name=editorNode.getName(), 
@@ -324,7 +344,7 @@ class ModelExporterBase(ABC):
                 continue
             #yield editorNode
     
-    def processBones( self ):
+    def processBones( self, mip ):
         if not self.config.exportSkeleton:
             self.logger.info('processing bones skipped because it has been disabled through the config')
             return
@@ -366,7 +386,7 @@ class ModelExporterBase(ABC):
             boneNodes = list(self.iterBoneNodes())
             for i, editorNode in enumerate( boneNodes ):
                 self.updateProgress( 'Processing bones', i, len(boneNodes) )
-                self.processBone( editorNode )
+                self.processBone( mip, editorNode )
                 self.processedNodes.add( editorNode )
 
             # resolve references
@@ -526,8 +546,8 @@ class ModelExporterBase(ABC):
                 continue
             yield editorNode
 
-    def processGroups( self ):
-        if not self.config.exportGroups:
+    def processGroups( self, mip ):
+        if not mip.export_groups:
             self.logger.info('exporting groups skipped because it has been disabled through the config')
             return
         
@@ -712,11 +732,11 @@ class ModelExporterBase(ABC):
         
         # groups share types with bones, so we must disambiguate carefully
         # it's easier to distinguish a group from a bone, so process the groups first
-        self.processGroups()
+        self.processGroups(mip)
         
         # after the groups have been processed, there should be no room for error when finding
         # the bones in the scene
-        self.processBones()
+        self.processBones(mip)
         self.processEnvelope()
         self.processMeshes()
         self.writeBinaries()
