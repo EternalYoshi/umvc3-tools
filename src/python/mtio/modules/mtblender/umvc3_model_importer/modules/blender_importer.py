@@ -417,6 +417,9 @@ class BlenderModelImporter(ModelImporterBase):
             if normal_map:
                 normal_map_node = nodes.new("ShaderNodeNormalMap")
                 normal_map_tex = nodes.new("ShaderNodeTexImage")
+                normal_map_separate_color = nodes.new("ShaderNodeSeparateColor")
+                normal_map_invert = nodes.new("ShaderNodeInvert")
+                normal_map_combine = nodes.new("ShaderNodeCombineColor")
 
                 # Swap the red and alpha channels of the normal map
                 # normal_map_pixels = np.array(normal_map.pixels)
@@ -427,9 +430,20 @@ class BlenderModelImporter(ModelImporterBase):
 
                 #Sets the Color Space to Non-Color so the material displays properly.
                 normal_map_tex.image = normal_map
-                normal_map_tex.image.colorspace_settings.name = 'Non-Color'
-                bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_node.inputs["Color"])
+                bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_separate_color.inputs["Color"])
+                bpy_material.node_tree.links.new(normal_map_separate_color.outputs["Green"], normal_map_invert.inputs["Color"])
+
+                bpy_material.node_tree.links.new(normal_map_tex.outputs["Alpha"], normal_map_combine.inputs["Red"])
+                bpy_material.node_tree.links.new(normal_map_invert.outputs["Color"], normal_map_combine.inputs["Green"])
+                bpy_material.node_tree.links.new(normal_map_separate_color.outputs["Blue"], normal_map_combine.inputs["Blue"])
+
+                bpy_material.node_tree.links.new(normal_map_combine.outputs["Color"], normal_map_node.inputs["Color"])
+
                 bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
+
+                # normal_map_tex.image.colorspace_settings.name = 'Non-Color'                
+                # bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_node.inputs["Color"])
+                # bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
 
             # normal_map = self.loadTextureSlot(material, "tNormalMap")
             # if normal_map:
