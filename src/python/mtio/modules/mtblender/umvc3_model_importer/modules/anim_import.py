@@ -704,13 +704,13 @@ def NameChecker(index, fcu, bonename) -> bool:
 
     return True
 
-def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingmetadata):
+def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingmetadata, type_b, ArmName):
     
     Frame = 0
     Bone = Track[0]['BoneID']
     
     if usingmetadata == True:
-        if bpy.data.objects["Armature"].data.bones.get(joint.name) is None:
+        if bpy.data.objects[ArmName].data.bones.get(joint.name) is None:
             return
         
         for ID, Keyframe in enumerate(Track):
@@ -719,7 +719,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
                     print("A scale Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
@@ -737,7 +737,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
             
                 if(Track[0]['TrackType'] == "localposition" or Track[0]['TrackType'] == "absoluteposition"):
                     print("A Translation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
@@ -755,7 +755,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localrotation" or Track[0]['TrackType'] == "absoluterotation"):
                     print("A Rotation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     print(str(joint))
                     #Do Stuff here.
@@ -779,7 +779,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
                     print("A scale Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
@@ -797,7 +797,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
             
                 if(Track[0]['TrackType'] == "localposition" or Track[0]['TrackType'] == "absoluteposition"):
                     print("A Translation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
@@ -826,7 +826,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localrotation" or Track[0]['TrackType'] == "absoluterotation"):
                     print("A Rotation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     print(str(joint))
                     #Do Stuff here.
@@ -848,7 +848,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
 
     else:
         #Checks if the bone exists on the Armature in the scene and will skip if it doesn't.
-        if bpy.data.objects["Armature"].data.bones.get(f'jnt_{Bone}') is None:
+        if bpy.data.objects[ArmName].data.bones.get(f'jnt_{Bone}') is None:
             return
     
         for ID, Keyframe in enumerate(Track):
@@ -857,7 +857,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
                     print("A scale Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
@@ -875,7 +875,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
             
                 if(Track[0]['TrackType'] == "localposition" or Track[0]['TrackType'] == "absoluteposition"):
                     print("A Translation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
@@ -893,7 +893,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localrotation" or Track[0]['TrackType'] == "absoluterotation"):
                     print("A Rotation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     print(str(joint))
                     #Do Stuff here.
@@ -913,11 +913,82 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                         print("Problem applying rotational keyframe.",sc, "\n", traceback.format_exc())
                         continue
 
+            elif type_b == True:
+
+                if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
+                    print("A scale Track.")
+                    obj = bpy.data.objects[ArmName]
+                    joint = obj.pose.bones[f'jnt_{Bone}']
+                    #Do Stuff here.
+                    try:
+                        Frame = int(Keyframe['Frame'])
+                        joint.scale = (float(Keyframe['data']['Z']), float(Keyframe['data']['Y']), float(Keyframe['data']['X']))
+                        #print(joint.scale)
+                        
+                        obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                        (f'jnt_{Bone}', "scale"), frame=(Frame), group=AnimName)
+                        
+                                            
+                    except Exception as sc:
+                        print("Problem applying scalar keyframe.",sc, "\n", traceback.format_exc())
+                        continue          
+            
+                if(Track[0]['TrackType'] == "localposition" or Track[0]['TrackType'] == "absoluteposition"):
+                    print("A Translation Track.")
+                    obj = bpy.data.objects[ArmName]
+                    joint = obj.pose.bones[f'jnt_{Bone}']
+                    #Do Stuff here.
+                    try:
+                        if joint.name == 'jnt_255':
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = ((float(Keyframe['data']['X'])), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
+                        
+                        else:
+
+                            Frame = int(Keyframe['Frame'])
+                            joint.location = ((float(Keyframe['data']['Z'])), -(float(Keyframe['data']['Y'])), float(Keyframe['data']['X']))
+                            print("Bone: ", joint.name ,"Translation Keyframe: ",joint.location)
+                            
+                            obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
+                                            (joint.name, "location"), frame=(Frame), group=AnimName)
+                        
+                                            
+                    except Exception as sc:
+                        print("Problem applying translation keyframe.",sc, "\n", traceback.format_exc())
+                        continue              
+                    
+                if(Track[0]['TrackType'] == "localrotation" or Track[0]['TrackType'] == "absoluterotation"):
+                    print("A Rotation Track.")
+                    obj = bpy.data.objects[ArmName]
+                    joint = obj.pose.bones[f'jnt_{Bone}']
+                    print(str(joint))
+                    #Do Stuff here.
+                    try:
+                        Frame = int(Keyframe['Frame'])
+                        Thing = mathutils.Quaternion((float(Keyframe['data']['Z']), (float(Keyframe['data']['Y'])), float(Keyframe['data']['W']), float(Keyframe['data']['X'])))
+                        print(Thing)                                                
+                        joint.rotation_quaternion = Thing
+                        print(joint.rotation_quaternion)
+                        
+                        #print(obj.pose.bones[0].rotation_mode)
+                        
+                        obj.keyframe_insert(data_path=joint.path_from_id("rotation_quaternion"), frame=(Frame), group=AnimName)
+                        
+                                            
+                    except Exception as sc:
+                        print("Problem applying rotational keyframe.",sc, "\n", traceback.format_exc())
+                        continue
+
             else:
                     
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
                     print("A scale Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
@@ -935,7 +1006,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
             
                 if(Track[0]['TrackType'] == "localposition" or Track[0]['TrackType'] == "absoluteposition"):
                     print("A Translation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
@@ -964,7 +1035,7 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     
                 if(Track[0]['TrackType'] == "localrotation" or Track[0]['TrackType'] == "absoluterotation"):
                     print("A Rotation Track.")
-                    obj = bpy.data.objects["Armature"]
+                    obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     print(str(joint))
                     #Do Stuff here.
@@ -1005,7 +1076,10 @@ def readM3AanimationData(self,context,filepath):
     for bone in obj.pose.bones:
         bone.matrix_basis.identity()
         bone.rotation_mode = 'QUATERNION'
-    bpy.data.objects["Armature"].rotation_mode = 'QUATERNION'
+    SelObj = bpy.context.selected_objects
+    ArmName = (SelObj[(len((bpy.context.selected_objects))- 1)].name)
+    bpy.data.objects[ArmName].rotation_mode = 'QUATERNION'
+    #bpy.data.objects["Armature"].rotation_mode = 'QUATERNION'
     
     for AnimYAML in self.files:
         AnimYAMLPath = os.path.join(os.path.dirname(filepath), AnimYAML.name)
@@ -1044,7 +1118,8 @@ def readM3AanimationData(self,context,filepath):
                 context.scene.frame_end = data_loaded.FrameCount
                 bpy.context.scene.frame_set(0)
                 
-                pose_bones = bpy.data.objects['Armature'].pose.bones
+                ATure = bpy.data.objects[ArmName]
+                pose_bones = ATure.pose.bones
                 NewJointName = ""
                 for x in range(len(pose_bones)):
                     print(pose_bones[x])
@@ -1076,7 +1151,7 @@ def readM3AanimationData(self,context,filepath):
                             jointName = metadata.getJointName( BID )
 
                         #Checks if the bone exists on the Armature in the scene and will skip if it doesn't.
-                        if bpy.data.objects["Armature"].data.bones.get(jointName) is None:
+                        if bpy.data.objects[ArmName].data.bones.get(jointName) is None:
                             continue
 
                         #Selects the bone and deselects everything else.
@@ -1084,9 +1159,9 @@ def readM3AanimationData(self,context,filepath):
                         for obj in bpy.context.selected_objects:
                             bpy.context.view_layer.objects.active = obj
 
-                        obj = bpy.data.objects["Armature"]
+                        obj = bpy.data.objects[ArmName]
                         joint = obj.pose.bones[jointName]
-                        jointEdit = bpy.data.armatures["Armature"].bones[jointName].matrix
+                        jointEdit = bpy.data.armatures[ArmName].bones[jointName].matrix
 
                         #If the animation range is lower than the current frame, expand the animation range to accomodate.
                         if int(RScene.frame_end < data_loaded.FrameCount):
@@ -1099,7 +1174,7 @@ def readM3AanimationData(self,context,filepath):
                                 #Apply Stuff here.
                                                         
                                 #Go To function when Track is used to apply all keyframes to specified bone.
-                                ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, self.import_legacy, mip.anim_import_withmetadata)
+                                ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, self.import_legacy, mip.anim_import_withmetadata, self.type_b, ArmName)
                                     
                                 #Then we empty the Track.
                                 del Track[:]
@@ -1126,7 +1201,7 @@ def readM3AanimationData(self,context,filepath):
                         BID = data_loaded.KeyFrames[id]['BoneID']
 
                         #Checks if the bone exists on the Armature in the scene and will skip if it doesn't.
-                        if bpy.data.objects["Armature"].data.bones.get(f'jnt_{BID}') is None:
+                        if bpy.data.objects[ArmName].data.bones.get(f'jnt_{BID}') is None:
                             continue
 
                         #Selects the bone and deselects everything else.
@@ -1134,9 +1209,9 @@ def readM3AanimationData(self,context,filepath):
                         for obj in bpy.context.selected_objects:
                             bpy.context.view_layer.objects.active = obj
 
-                        obj = bpy.data.objects["Armature"]
+                        obj = bpy.data.objects[ArmName]
                         joint = obj.pose.bones[f'jnt_{BID}']
-                        jointEdit = bpy.data.armatures["Armature"].bones[f'jnt_{BID}'].matrix
+                        jointEdit = bpy.data.armatures[ArmName].bones[f'jnt_{BID}'].matrix
 
                         #If the animation range is lower than the current frame, expand the animation range to accomodate.
                         if int(RScene.frame_end < data_loaded.FrameCount):
@@ -1149,7 +1224,7 @@ def readM3AanimationData(self,context,filepath):
                                 #Apply Stuff here.
                                                         
                                 #Go To function when Track is used to apply all keyframes to specified bone.
-                                ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, self.import_legacy, mip.anim_import_withmetadata)
+                                ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, self.import_legacy, mip.anim_import_withmetadata, self.type_b, ArmName)
                                     
                                 #Then we empty the Track.
                                 del Track[:]
@@ -1342,7 +1417,10 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
 
         edit_bones = obj.data.edit_bones
 
-        arm = scene.objects.get("Armature")
+        SelObj = bpy.context.selected_objects
+        ArmName = (SelObj[(len((bpy.context.selected_objects))- 1)].name)
+
+        arm = SelObj[(len((bpy.context.selected_objects))- 1)]
 
         mip:ModelImportProperties = context.scene.sub_scene_properties
 

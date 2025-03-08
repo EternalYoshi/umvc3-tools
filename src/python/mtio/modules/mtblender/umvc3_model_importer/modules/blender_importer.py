@@ -430,6 +430,7 @@ class BlenderModelImporter(ModelImporterBase):
 
                 #Sets the Color Space to Non-Color so the material displays properly.
                 normal_map_tex.image = normal_map
+                normal_map_tex.image.colorspace_settings.name = 'Non-Color' 
                 bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_separate_color.inputs["Color"])
                 bpy_material.node_tree.links.new(normal_map_separate_color.outputs["Green"], normal_map_invert.inputs["Color"])
 
