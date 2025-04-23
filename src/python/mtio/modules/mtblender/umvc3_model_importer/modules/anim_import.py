@@ -1566,8 +1566,8 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             IK_ElbowR.color.palette = 'THEME01'		
 
             #Takes care of parenting to IK bones.
-            edit_bones[MetaFootL].parent = IK_FootL
-            edit_bones[MetaFootR].parent = IK_FootR
+            #edit_bones[MetaFootL].parent = IK_FootL
+            #edit_bones[MetaFootR].parent = IK_FootR
             edit_bones[MetaHandL].parent = IK_HandL
             edit_bones[MetaHandR].parent = IK_HandR
 
@@ -1581,11 +1581,29 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             clc.subtarget = pose_bones[MetaKneeL].name
             clc.head_tail = 1.0
 
+            crc = LFootBone.constraints.new('COPY_ROTATION')
+            crc.target = arm
+            crc.subtarget = pose_bones["IK_FootL"].name
+            crc.use_x = True
+            crc.use_y = True
+            crc.use_z = True
+            crc.target_space = 'LOCAL_OWNER_ORIENT'
+            crc.owner_space = 'LOCAL_WITH_PARENT'
+
             RFootBone = pose_bones[MetaFootR]
             rclc = RFootBone.constraints.new('COPY_LOCATION')
             rclc.target = arm
             rclc.subtarget = pose_bones[MetaKneeR].name
             rclc.head_tail = 1.0
+
+            rcrc = RFootBone.constraints.new('COPY_ROTATION')
+            rcrc.target = arm
+            rcrc.subtarget = pose_bones["IK_FootR"].name
+            rcrc.use_x = True
+            rcrc.use_y = True
+            rcrc.use_z = True
+            rcrc.target_space = 'LOCAL_OWNER_ORIENT'
+            rcrc.owner_space = 'LOCAL_WITH_PARENT'
 
             LKneeBone = pose_bones[MetaKneeL]
             lik = LKneeBone.constraints.new('IK')
@@ -1755,8 +1773,8 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             IK_ElbowR.color.palette = 'THEME01'		
 
             #Takes care of parenting to IK bones.
-            edit_bones["jnt_18"].parent = IK_FootL
-            edit_bones["jnt_22"].parent = IK_FootR
+            #edit_bones["jnt_18"].parent = IK_FootL
+            #edit_bones["jnt_22"].parent = IK_FootR
             edit_bones["jnt_11"].parent = IK_HandL
             edit_bones["jnt_15"].parent = IK_HandR
 
@@ -1770,11 +1788,29 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             clc.subtarget = pose_bones["jnt_17"].name
             clc.head_tail = 1.0
 
+            crc = LFootBone.constraints.new('COPY_ROTATION')
+            crc.target = arm
+            crc.subtarget = pose_bones["IK_FootL"].name
+            crc.use_x = True
+            crc.use_y = True
+            crc.use_z = True
+            crc.target_space = 'LOCAL_OWNER_ORIENT'
+            crc.owner_space = 'LOCAL_WITH_PARENT'
+
             RFootBone = pose_bones["jnt_22"]
             rclc = RFootBone.constraints.new('COPY_LOCATION')
             rclc.target = arm
             rclc.subtarget = pose_bones["jnt_21"].name
             rclc.head_tail = 1.0
+
+            rcrc = RFootBone.constraints.new('COPY_ROTATION')
+            rcrc.target = arm
+            rcrc.subtarget = pose_bones["IK_FootR"].name
+            rcrc.use_x = True
+            rcrc.use_y = True
+            rcrc.use_z = True
+            rcrc.target_space = 'LOCAL_OWNER_ORIENT'
+            rcrc.owner_space = 'LOCAL_WITH_PARENT'
 
             LKneeBone = pose_bones["jnt_17"]
             lik = LKneeBone.constraints.new('IK')
