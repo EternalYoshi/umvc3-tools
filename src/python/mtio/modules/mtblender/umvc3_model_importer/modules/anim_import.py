@@ -913,6 +913,9 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                         print("Problem applying rotational keyframe.",sc, "\n", traceback.format_exc())
                         continue
 
+                if type(Track[0]['TrackType']) is int:
+                    print("jnt_" + str(joint) + " has a weird tracktype that isn't documented: "+ str(Track[0]['TrackType']) +" so this keyframe is getting skipped.")
+
             elif type_b == True:
 
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
@@ -984,6 +987,9 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                         print("Problem applying rotational keyframe.",sc, "\n", traceback.format_exc())
                         continue
 
+                if type(Track[0]['TrackType']) is int:
+                    print("jnt_" + str(joint) + " has a weird tracktype that isn't documented: "+ str(Track[0]['TrackType']) +" so this keyframe is getting skipped.")
+
             else:
                     
                 if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
@@ -1054,6 +1060,13 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                     except Exception as sc:
                         print("Problem applying rotational keyframe.",sc, "\n", traceback.format_exc())
                         continue
+
+                if type(Track[0]['TrackType']) is int:
+                    print("jnt_" + str(joint) + " has a weird tracktype that isn't documented: "+ str(Track[0]['TrackType']) +" so this keyframe is getting skipped.")
+
+
+
+
 
 def readM3AanimationData(self,context,filepath):
     global AnimName; AnimName = ""
@@ -1202,6 +1215,15 @@ def readM3AanimationData(self,context,filepath):
 
                         #Checks if the bone exists on the Armature in the scene and will skip if it doesn't.
                         if bpy.data.objects[ArmName].data.bones.get(f'jnt_{BID}') is None:
+
+                            #Then we empty the Track.
+                            del Track[:]
+                                    
+                            #Then continue as usual.
+                            Track.append(Keyframe)
+                            PrevTrackType = Keyframe['TrackType']
+                            PrevBoneID = Keyframe['BoneID']
+
                             continue
 
                         #Selects the bone and deselects everything else.
