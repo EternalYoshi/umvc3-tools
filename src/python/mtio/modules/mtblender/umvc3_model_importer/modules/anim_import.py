@@ -1064,10 +1064,6 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
                 if type(Track[0]['TrackType']) is int:
                     print("jnt_" + str(joint) + " has a weird tracktype that isn't documented: "+ str(Track[0]['TrackType']) +" so this keyframe is getting skipped.")
 
-
-
-
-
 def readM3AanimationData(self,context,filepath):
     global AnimName; AnimName = ""
     GroupCount = 0
@@ -1311,6 +1307,9 @@ class SUB_PT_Anim_Import(Panel):
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_add_simple_ik', text = 'Add Standard IKs Selected Armature')
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator('sub.op_select_relevant_joints_for_baking', text = 'Select Relevant Bones For Baking')
             layout.separator()            
             row = layout.row(align=True)
             row.operator(SUB_OP_anim_import.bl_idname, icon='IMPORT', text='Import Marvel 3 .yml Animation')
@@ -1882,3 +1881,62 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
         return {'FINISHED'} 
+    
+class SUB_OP_SELECT_RELEVANT_JOINTS_FOR_BAKING(bpy.types.Operator):
+    """Choose which Metadata YML to Use"""
+    bl_idname = "sub.op_select_relevant_joints_for_baking"
+    bl_label = "Selects Relevant Bones for Baking"
+
+
+    def execute(self,context):
+        bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
+        #Stores the object selected.
+        obj = bpy.context.active_object
+        pose_bones = obj.pose.bones
+
+        mip:ModelImportProperties = context.scene.sub_scene_properties
+
+        #Deselects Everything else and then selects the relevant bones.
+        bpy.context.active_object.select_set(False)
+
+        pose_bones['jnt_1'].bone.select = True
+        pose_bones['jnt_2'].bone.select = True
+        pose_bones['jnt_3'].bone.select = True
+
+        
+        #Primary Limb Bones.
+        for x in range(4,24):
+            try:
+                BoneName = f'jnt_{x}'
+                pose_bones[BoneName].bone.select = True
+            except:
+                print("Bone " + BoneName + " doesn't exist on this Armature.")
+
+        #Twist Bones.
+        for x in range(24,48):
+            try:
+                BoneName = f'jnt_{x}'
+                pose_bones[BoneName].bone.select = True
+            except:
+                print("Bone " + BoneName + " doesn't exist on this Armature.")
+
+        #Left Hand Bones.
+        for x in range(50,67):
+            try:
+                BoneName = f'jnt_{x}'
+                pose_bones[BoneName].bone.select = True
+            except:
+                print("Bone " + BoneName + " doesn't exist on this Armature.")
+
+        #Right Hand Bones.
+        for x in range(70,87):
+            try:
+                BoneName = f'jnt_{x}'
+                pose_bones[BoneName].bone.select = True
+            except:
+                print("Bone " + BoneName + " doesn't exist on this Armature.")                
+
+        print("Finished selecting bones for baking.")
+
+        bpy.ops.object.mode_set(mode='POSE', toggle=False)        
+        return {'FINISHED'}
