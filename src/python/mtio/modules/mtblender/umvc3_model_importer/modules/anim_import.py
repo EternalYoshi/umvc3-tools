@@ -1589,8 +1589,8 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             #Takes care of parenting to IK bones.
             #edit_bones[MetaFootL].parent = IK_FootL
             #edit_bones[MetaFootR].parent = IK_FootR
-            edit_bones[MetaHandL].parent = IK_HandL
-            edit_bones[MetaHandR].parent = IK_HandR
+            #edit_bones[MetaHandL].parent = IK_HandL
+            #edit_bones[MetaHandR].parent = IK_HandR
 
             bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
             pose_bones = bpy.data.objects['Armature'].pose.bones
@@ -1650,11 +1650,31 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             lhclc.subtarget = pose_bones[MetaElbowL].name
             lhclc.head_tail = 1.0
 
+            #Adds Constraints to Left Hand Bone.
+            lhclc = LHandBone.constraints.new('COPY_ROTATION')
+            lhclc.target = arm
+            lhclc.subtarget = pose_bones["IK_HandL"].name
+            lhclc.use_x = True
+            lhclc.use_y = True
+            lhclc.use_z = True
+            lhclc.target_space = 'LOCAL_OWNER_ORIENT'
+            lhclc.owner_space = 'LOCAL_WITH_PARENT'
+
             RHandBone = pose_bones[MetaHandR]
             rhclc = RHandBone.constraints.new('COPY_LOCATION')
             rhclc.target = arm
             rhclc.subtarget = pose_bones[MetaElbowR].name
             rhclc.head_tail = 1.0
+
+            #Adds Constraints to Right Hand Bone.
+            rhclc = RHandBone.constraints.new('COPY_ROTATION')
+            rhclc.target = arm
+            rhclc.subtarget = pose_bones["IK_HandR"].name
+            rhclc.use_x = True
+            rhclc.use_y = True
+            rhclc.use_z = True
+            rhclc.target_space = 'LOCAL_OWNER_ORIENT'
+            rhclc.owner_space = 'LOCAL_WITH_PARENT'
 
             LElbowBone = pose_bones[MetaElbowL]
             lelik = LElbowBone.constraints.new('IK')
@@ -1796,8 +1816,8 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             #Takes care of parenting to IK bones.
             #edit_bones["jnt_18"].parent = IK_FootL
             #edit_bones["jnt_22"].parent = IK_FootR
-            edit_bones["jnt_11"].parent = IK_HandL
-            edit_bones["jnt_15"].parent = IK_HandR
+            #edit_bones["jnt_11"].parent = IK_HandL
+            #edit_bones["jnt_15"].parent = IK_HandR
 
             bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
             pose_bones = bpy.data.objects['Armature'].pose.bones
@@ -1857,11 +1877,31 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             lhclc.subtarget = pose_bones["jnt_10"].name
             lhclc.head_tail = 1.0
 
+            #Adds Constraints to Left Hand Bone.
+            lhclc = LHandBone.constraints.new('COPY_ROTATION')
+            lhclc.target = arm
+            lhclc.subtarget = pose_bones["IK_HandL"].name
+            lhclc.use_x = True
+            lhclc.use_y = True
+            lhclc.use_z = True
+            lhclc.target_space = 'LOCAL_OWNER_ORIENT'
+            lhclc.owner_space = 'LOCAL_WITH_PARENT'
+
             RHandBone = pose_bones["jnt_15"]
             rhclc = RHandBone.constraints.new('COPY_LOCATION')
             rhclc.target = arm
             rhclc.subtarget = pose_bones["jnt_14"].name
             rhclc.head_tail = 1.0
+
+            #Adds Constraints to Right Hand Bone.
+            rhclc = RHandBone.constraints.new('COPY_ROTATION')
+            rhclc.target = arm
+            rhclc.subtarget = pose_bones["IK_HandR"].name
+            rhclc.use_x = True
+            rhclc.use_y = True
+            rhclc.use_z = True
+            rhclc.target_space = 'LOCAL_OWNER_ORIENT'
+            rhclc.owner_space = 'LOCAL_WITH_PARENT'
 
             LElbowBone = pose_bones["jnt_10"]
             lelik = LElbowBone.constraints.new('IK')
