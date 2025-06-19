@@ -737,7 +737,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
 
         print("First frame: ", FirstFrame, "while the last frame is: ", FrameCount)
 
-        obj = bpy.data.objects["Armature"]
+        #obj = bpy.data.objects["Armature"]
 
         #Attempts to actually gather all of the keyframes in the scene.
         
