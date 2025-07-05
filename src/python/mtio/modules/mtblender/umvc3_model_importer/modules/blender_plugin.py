@@ -83,9 +83,18 @@ class BlenderNodeProxy(EditorNodeProxy):
         #Has to be rewritten to disambiguate between bones and not bones.
         if isinstance(self.node, bpy_types.Bone):
             return self.node.hide
-        #bones need to be check via self.node.hide
+        #Below is required for groups
         else:
             return self.node.hide_viewport
+
+    def isBoneHidden(self):
+        #To disambiguate between bones and not bones.
+        if isinstance(self.node, bpy_types.Bone):
+            return self.node.hide
+        elif self.node is None:
+            return True
+        else:
+            return self.node.hide
 
     def isMeshNode(self):
         return isinstance(self.node.data, bpy_types.Mesh)

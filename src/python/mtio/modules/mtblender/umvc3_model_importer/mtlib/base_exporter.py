@@ -250,6 +250,31 @@ class ModelExporterBase(ABC):
             return False
         return True
 
+    def shouldExportBoneNode( self, node: EditorNodeProxy ):
+        '''Returns if the node should be included in the export'''
+        if node.isBoneHidden():
+            return False
+        if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
+            return False
+        return True
+
+    def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
+        worldMtx = node.getTransform()
+        if node.node.parent is None or node.getParent() is None:
+             parentWorldMtx = nclCreateMat44()
+        elif self.shouldExportBoneNode( node.getParent() ):
+            parentWorldMtx = node.getParent().getTransform()
+        #parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportBoneNode( node.getParent() ) else nclCreateMat44()
+        localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
+        if self.plugin.config.exportBakeScale:
+            localMtx[3] *= NclVec4((self.plugin.config.exportScale, self.plugin.config.exportScale, self.plugin.config.exportScale, 1))
+            if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
+                localMtx = self.transformMtxNoScale * localMtx
+        else:
+            if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
+                localMtx = self.transformMtx * localMtx
+        return localMtx
+
     def getNodeLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform()
         parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportNode( node.getParent() ) else nclCreateMat44()
@@ -262,8 +287,7 @@ class ModelExporterBase(ABC):
             if node.getParent() is None or not self.shouldExportNode(node.getParent()):
                 localMtx = self.transformMtx * localMtx
         return localMtx
-
-
+    
         # arma = bpy.data.objects['Armature']
         # worldMtx = arma.matrix_world @ node.node.matrix
         # if node.getParent() is not None and self.shouldExportNode( node.getParent()):
@@ -282,7 +306,6 @@ class ModelExporterBase(ABC):
         #         localMtx = self.transformMtx * localMtx
         # return localMtx
 
-
     def getNodeWorldMtx( self, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform() 
         if self.config.exportBakeScale:
@@ -299,7 +322,7 @@ class ModelExporterBase(ABC):
         self.logger.info(f'processing bone: {editorNode.getName()}')
         jointMeta = self.metadata.getJointByName( editorNode.getName() )
         attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
-        localMtx = self.getNodeLocalMtx( mip, editorNode )
+        localMtx = self.getNodeBoneLocalMtx( mip, editorNode )
         
         joint = imJoint(
             name=editorNode.getName(), 
@@ -308,7 +331,7 @@ class ModelExporterBase(ABC):
             #parent=self.processBone( editorNode.getParent() ) if editorNode.getParent() is not None and self.shouldExportNode( editorNode.getParent() ) else None, # must be specified here to not infere with matrix calculations
             field03=attribs.field03,
             field04=attribs.field04,
-            length=None,        # TODO copy from attribs (?)
+            length=attribs.length,
             invBindMtx=None,    # TODO copy from attribs (?)
             offset=None,        # TODO copy from attribs (?)
             symmetry=None,      # need to create current joint first to resolve self and forward references
@@ -316,7 +339,7 @@ class ModelExporterBase(ABC):
         )
         
         self.editorNodeToJointMap[editorNode.unwrap()] = joint
-        parent = self.processBone( editorNode.getParent() ) if editorNode.getParent() is not None and self.shouldExportNode( editorNode.getParent() ) else None
+        parent = self.processBone( mip, editorNode.getParent() ) if (editorNode.getParent() is not None or editorNode.node.parent is not None) and self.shouldExportBoneNode( editorNode.getParent() ) else None
         if parent is not None:
             joint.setParent( parent )
 
@@ -325,24 +348,57 @@ class ModelExporterBase(ABC):
         self.jointIdxByName[ joint.name ] = len( self.model.joints ) - 1
         
     def iterBoneNodes( self ):
-        # process all bones in the scene
-        for editorNode in self.getObjects():
-            #Gotta get the Armature to get the bones first.
-            if editorNode.node.type == 'ARMATURE':
-                arm = editorNode.node
-                for ChildNode in bpy.data.armatures[arm.name].bones:
-                    #test = ChildNode["id"]
-                    editorNode.node = ChildNode
-                    if editorNode.isBoneNode():
-                        yield editorNode
-                        #yield bpy.data.objects[arm.name].data.bones[editorNode.node.name]
-                    # if not ChildNode.isBoneNode():
-                    #     continue
-                # if not self.shouldExportNode( editorNode ) or not editorNode.isBoneNode(): Gotta rewrite the other part to iterate bones.
-                #     continue
-            else:
+
+        #process all bones in the scene(TGE's Original Code)
+        for editorNode in self.getObjectBones():
+            if not self.shouldExportBoneNode( editorNode ) or not editorNode.isBoneNode():
                 continue
-            #yield editorNode
+
+            yield editorNode
+
+        # # Get the selected Armature first.
+        # for editorNode in self.getObjects():
+        #     obj = bpy.context.active_object
+        #     if editorNode.node.name == obj.name:
+        #         # Now the bones.
+        #         for ChildNode in editorNode.node.data.bones:
+        #             obj = ChildNode
+        #             yield obj
+        #     else:
+        #         continue
+
+        # # process all bones in the scene
+        # for editorNode in self.getObjects():
+        #     #Gotta get the Armature to get the bones first. Also want to ensure the Armature's name matches.            
+        #     if editorNode.node.type == 'ARMATURE' and editorNode.node.name == bpy.context.selected_objects[0].name:
+        #         arm = editorNode.node
+        #         # for ChildNode in bpy.data.armatures[arm.name].bones:
+        #         # editorNode.node = bpy.data.armatures[arm.name].bones[0]
+        #         #     if editorNode.isBoneNode():
+        #         for index ,ChildNode in enumerate(bpy.data.armatures[arm.name].bones):
+        #             editorNode.node = bpy.data.armatures[arm.name].bones[index]
+        #             yield editorNode
+        #     else:
+        #         continue
+
+        # process all bones in the scene(TGE's Original Code)
+        # for editorNode in self.getObjects():
+        #     if not self.shouldExportNode( editorNode ) or not editorNode.isBoneNode():
+        #         continue
+
+        #     yield editorNode
+
+        # # process all bones in the scene(Previous Fixing Attempt)
+        # for editorNode in self.getObjects():
+        #     #Gotta get the Armature to get the bones first.
+        #     if editorNode.node.type == 'ARMATURE':
+        #         arm = editorNode.node
+        #         for ChildNode in bpy.data.armatures[arm.name].bones:
+        #             editorNode.node = ChildNode
+        #             if editorNode.isBoneNode():
+        #                 yield editorNode
+        #     else:
+        #         continue
     
     def processBones( self, mip ):
         if not self.config.exportSkeleton:
@@ -384,6 +440,18 @@ class ModelExporterBase(ABC):
         else:
             # process all bones in the scene
             boneNodes = list(self.iterBoneNodes())
+
+            #Rewritten function to get all the joints of the selected Armature.
+            # boneNodes = []
+            # for editorNode in self.getObjects():
+            #     #Gotta get the Armature to get the bones first. Also want to ensure the Armature's name matches.            
+            #     if editorNode.node.type == 'ARMATURE' and editorNode.node.name == bpy.context.selected_objects[0].name:
+            #         arm = editorNode.node
+            #         for i, ChildNode in enumerate(bpy.data.armatures[arm.name].bones):
+            #             boneNodes.append(bpy.data.armatures[arm.name].bones[i])                            
+            #     else:
+            #         continue
+
             for i, editorNode in enumerate( boneNodes ):
                 self.updateProgress( 'Processing bones', i, len(boneNodes) )
                 self.processBone( mip, editorNode )
@@ -394,7 +462,7 @@ class ModelExporterBase(ABC):
                 editorNode = self.jointToEditorNodeMap[joint]
                 jointMeta = self.metadata.getJointByName( editorNode.getName() )
                 attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
-                joint.symmetry = self.processBone( attribs.symmetryNode ) if attribs.symmetryNode != None else None
+                joint.symmetry = self.processBone(mip, attribs.symmetryNode ) if attribs.symmetryNode != None else None
 
         bpy.ops.object.mode_set(mode='OBJECT',toggle=False)        
 

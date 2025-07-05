@@ -7,3 +7,5 @@ pip.main(['install', 'pyyaml', 'ruamel.yaml', 'numpy', 'pyglm==2.7.0', 'ptvsd', 
 
 
 After that restart Blender.
+
+- by TGE & Eternal Yoshi with thanks to neociano for stage material definitions.

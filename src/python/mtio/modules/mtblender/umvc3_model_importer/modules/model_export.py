@@ -57,6 +57,14 @@ class SUB_PT_Model_Export(Panel):
             row = layout.row(align=True)
             row.prop(mip, 'extracted_archive_directory')  
             row = layout.row(align=True)
+
+            row.prop(mip, 'export_use_reference_model',text='Use Reference Model when exporting:')
+            row = layout.row(align=True)
+            row.prop(mip, 'export_reference_model_file')
+            row = layout.row(align=True)
+            row.operator(SUB_PT_MOD_OT_Choose_Reference_Model_For_Export.bl_idname,icon='IMPORT',text= 'Choose Optional Reference Model file')
+            row = layout.row(align=True)
+
             row.prop(mip, 'export_withmetadata',text='Use Metadata when exporting:')
             row = layout.row(align=True)
             row.prop(mip, 'export_metadata_file')
@@ -137,6 +145,26 @@ class SUB_OP_MOD_ExportModelPath(bpy.types.Operator, ImportHelper):
 
         return {'FINISHED'}
 
+class SUB_PT_MOD_OT_Choose_Reference_Model_For_Export(bpy.types.Operator, ImportHelper):
+    """Choose which Metadata YML to Use"""
+    bl_idname = "sub.mod_ot_choose_reference_model_for_export"
+    bl_label = "Choose Reference Model(Optional)"
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    bl_options = {'UNDO'}
+    filename_ext = ".mod"
+    filter_glob: StringProperty(default="*.mod", options={'HIDDEN'})        
+    #directory: bpy.props.StringProperty(subtype="FILE_PATH")
+    
+    def invoke(self, context, event):  # pragma: no cover
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'} 
+
+    def execute(self, context):
+        mip:ModelImportProperties = context.scene.sub_scene_properties
+        print("For reference model, you chose:\n", self.filepath)
+        mip.export_reference_model_file = self.filepath
+        return {'FINISHED'}
+
 class SUB_PT_MOD_OT_Choose_Metadata_For_Export_YML(bpy.types.Operator, ImportHelper):
     """Choose which Metadata YML to Use"""
     bl_idname = "sub.mod_ot_choose_export_metadata_yml"
@@ -196,6 +224,14 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
         print("Variable Check!\n")
         print("Model Chosen: ", mip.export_modelpath)
         print("Chosen Archive Directory: ", mip.extracted_archive_directory)
+
+
+        if mip.export_use_reference_model == True:
+            print("\n Reference Model to be used: ", mip.export_reference_model_file)
+        else:
+            print("No Reference Model to be used")
+
+
         if mip.export_withmetadata == True:
             print("\n Metadata is to be used: ", mip.export_metadata_file)
         else:
@@ -232,7 +268,7 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
             ShowMessageBox("You need to choose a model file before anything can be exported.", "Notice")
             print("You need to choose a model file before anything can be exported.")
         else:
-            print("This is where the model importing code would begin.")
+            print("This is where the model importing begins.\n")
 
             #Below code adapted from TGE's MOD_OT_export function. 
             from .blender_plugin import plugin
@@ -256,8 +292,8 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
             try:
                 _execute()
             except Exception as e:
-                self.report( {'ERROR'}, f'A fatal error occured during export.\n{e.message}' )
-                ShowMessageBox("A fatal error occured during export.")
-
+                self.report( {'ERROR'}, f'A fatal error occured during export.\n{e.args}' )
+                ShowMessageBox("A fatal error occured during export.\n")
+                ShowMessageBox(str(e.args))
 
         return {'FINISHED'}    

@@ -16,7 +16,7 @@ def register():
 class ModelImportProperties(PropertyGroup):
     import_compatwithlukasscript: BoolProperty(
         name='Compatibility With Lukas'' script.',
-        description='Imports in a way that is compatible with the classic 3ds maxscript',
+        description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',
         default=False,
     )
     input_modelpath: StringProperty(
@@ -28,12 +28,12 @@ class ModelImportProperties(PropertyGroup):
     )
     import_withmetadata: BoolProperty(
         name='Import With Metadata.',
-        description='Determines whether or not to use Metadata when importing',
+        description='Determines whether or not to use Metadata when importing. Disable when using custom skeletons',
         default=True,
     )
     metadata_file: StringProperty(
         name = 'Optional Metadata File',
-        description = 'Load the model with a metadata file to get descriptive names on group and bones',
+        description = 'Load the model with a metadata file to get descriptive names on groups, primitives, and bones',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
@@ -65,17 +65,17 @@ class ModelImportProperties(PropertyGroup):
     )
     model_scale: FloatProperty(
         name='Scale',
-        description='Scale',
+        description='Scale. Leave at 1.0 if unsure',
         default=1.0,
     )
     bake_scale: BoolProperty(
         name='Bake Scale',
-        description='Bake scale of model in bones(Not cleanly working at the moment!)',
+        description='Bake scale of model in bones. Recommended to leave checked if not using 1.0 for scale',
         default=True,
     )
     convert_tex_to_dds: BoolProperty(
         name='Convert TEX to DDS',
-        description='Converts To .DDS files',
+        description='Converts any .TEX files in the same direcotry To .DDS files',
         default=True,
     )
     convert_mrl_to_yml: BoolProperty(
@@ -85,12 +85,12 @@ class ModelImportProperties(PropertyGroup):
     ) 
     inherit_scale: BoolProperty(
         name='Inherit Scale',
-        description='Enables child bones to inherit scale of parents in animations.',
+        description='Enables child bones to inherit scale of parents in animations. Recommended to leave unchecked or false if model is to be used for animation',
         default=True,
     )                    
     create_layer: BoolProperty(
         name='Create_Collection',
-        description='Creates a collection for the Imported Model.',
+        description='Creates a collection for the Imported Model. Recommended.',
         default=True,
     )
     normalize_bone_length: BoolProperty(
@@ -100,29 +100,29 @@ class ModelImportProperties(PropertyGroup):
     )                                
     flip_up_axis: BoolProperty(
         name='Flip Up Axis',
-        description='Converts the Up Axis from Y-Up to Z-up.',
+        description='Converts the Up Axis from Y-Up to Z-up. Recommened to leave on',
         default=True,
     )                 
-    popupint: IntProperty(
-        name='Pop Up Box Context Value ',
-        default=0,
-    )
+    # popupint: IntProperty(
+    #     name='Pop Up Box Context Value ',
+    #     default=0,
+    # )
     #Anim Properties.===================================================================================================================
     anim_import_withmetadata: BoolProperty(
         name='Import With Metadata.',
-        description='Determines whether or not to use Metadata when importing',
+        description='Determines whether or not to use Metadata when importing. Uncheck if using custom skeleton or unsure',
         default=True,
     )
     anim_metadata_file: StringProperty(
         name = 'Optional Metadata File',
-        description = 'Load the model with a metadata file to get descriptive names on group and bones',
+        description = 'The metadata file used for dealing with animations. Leave unckecked if unsure',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
     )
     anim_export_metadata_file: StringProperty(
         name = 'Optional Metadata File',
-        description = 'Load the model with a metadata file to get descriptive names on group and bones',
+        description = 'The metadata file referenced when exporting animations',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
@@ -130,60 +130,60 @@ class ModelImportProperties(PropertyGroup):
     #Export Properties.===================================================================================================================
     export_flip_up_axis: BoolProperty(
         name='Flip Up Axis',
-        description='Converts the Up Axis from Y-Up to Z-up.',
+        description='Converts the Up Axis from Y-Up to Z-up',
         default=True,
     )
     export_modelpath: StringProperty(
         name = 'Model File Path',  
-        description = 'The UMVC3 .mod file to import.',
+        description = 'The UMVC3 .mod file to import',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
     )
     extracted_archive_directory: StringProperty(
         name = 'Extracted Archive Path',  
-        description = 'The unpacked archive path needed for export.',
+        description = 'The unpacked archive path needed for export',
         default = '',
         maxlen=1024,
         subtype='DIR_PATH',
     )        
     export_compatwithlukasscript: BoolProperty(
         name='Compatibility With Lukas'' script.',
-        description='Exports in a way that is compatible with the classic 3ds maxscript.',
+        description='Exports in a way that is compatible with the classic 3ds maxscript',
         default=False,
     )
     export_use_reference_model: BoolProperty(
-        name='Flip Up Axis',
-        description='Converts the Up Axis from Y-Up to Z-up.',
+        name='Use Reference Model',
+        description='Determines whether or not to use a reference model when exporting',
         default=False,
     )
     export_reference_model_file: StringProperty(
         name = 'Optional Reference Model File Path',  
-        description = 'The UMVC3 .mod file to import.',
+        description = 'The UMVC3 .mod file to import',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
     )
     export_withmetadata: BoolProperty(
         name='Import With Metadata.',
-        description='Determines whether or not to use Metadata when importing.',
+        description='Determines whether or not to use Metadata when exporting',
         default=True,
     )    
     export_metadata_file: StringProperty(
         name = 'Optional Metadata File',
-        description = 'Load the model with a metadata file to get descriptive names on group and bones.',
+        description = 'Load the model with a metadata file to get descriptive names on group and bones',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
     )    
     export_weights: BoolProperty(
         name='Export Weights',
-        description='export Weights',
+        description='Export Weights',
         default=True,
     )
     export_normals: BoolProperty(
         name='Export Normals',
-        description='export Normals',
+        description='Export Normals',
         default=True,
     )
     export_groups: BoolProperty(
@@ -193,22 +193,22 @@ class ModelImportProperties(PropertyGroup):
     )
     export_skeleton: BoolProperty(
         name='Export Skeleton',
-        description='export Skeleton',
+        description='Export Skeleton',
         default=True,
     )
     export_meshes: BoolProperty(
         name='Export Meshes',
-        description='export Meshes',
+        description='Export Meshes',
         default=True,
     )
     generate_mrl: BoolProperty(
         name='Generate MRL YML',
-        description='export Meshes',
+        description='Export Meshes',
         default=False,
     )
     use_existing_mrl: BoolProperty(
         name='Generate MRL YML',
-        description='export Meshes',
+        description='Export Meshes',
         default=True,
     )    
     existing_mrl_yml: StringProperty(
@@ -225,7 +225,7 @@ class ModelImportProperties(PropertyGroup):
     )
     export_bake_scale: BoolProperty(
         name='Bake Scale Into Translation',
-        description='Bake scale of model in bones(Not cleanly working at the moment!)',
+        description='Bake scale of model in bones',
         default=True,
     )
     convert_tex_to_tex: BoolProperty(
@@ -240,16 +240,16 @@ class ModelImportProperties(PropertyGroup):
     # )
     export_overwrite_textures: BoolProperty(
         name='Overwrite Existing Textures',
-        description='Overwrites Existing Texture Files.',
+        description='Overwrites Existing Texture Files',
         default=False,
     )
     export_group_per_mesh: BoolProperty(
         name='Export Group Per Mesh',
-        description='Exports Group Per Mesh.',
+        description='Exports Group Per Mesh. If unsure, leave unchecked',
         default=False,
     )
     generate_envelopes: BoolProperty(
         name='Generate Envelopes',
-        description='Exports with the skin data.',
+        description='Produces skin data for exporting. Leave Unchecked if using a custom skeleton',
         default=True,
     )    
