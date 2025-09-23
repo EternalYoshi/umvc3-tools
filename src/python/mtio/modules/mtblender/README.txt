@@ -8,7 +8,8 @@ pip.main(['install', 'pyyaml', 'ruamel.yaml', 'numpy', 'pyglm==2.7.0', 'ptvsd', 
 
 After that restart Blender.
 
-To install, copy the umvc3_model_importer folder in your Blender plugins folder.
+To install, copy the umvc3_model_importer folder in your Blender plugins folder located at \AppData\Roaming\Blender Foundation\Blender\X\scripts\addons with X being your version number.
 This version incorporates the model importer and exporter into the UI.
+
 
 Some features are still incomplete.
