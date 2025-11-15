@@ -47,7 +47,16 @@ class BlenderCustomAttributeSetProxy(EditorCustomAttributeSetProxy):
         super().__init__(attribs)
 
     def getCustomAttribute(self, name: str) -> Any:
-        return self._ctx[name]
+
+        #Gotta do this to accommodate for moving the MT Attributes of bones to the Pose Bone.
+        if isinstance(self._ctx, bpy.types.Bone):
+            Armature = self._ctx.id_data
+            BoneID = self._ctx.name
+            for obj in bpy.data.objects:
+                if obj.type == 'ARMATURE' and obj.data == Armature:
+                    return obj.pose.bones[BoneID][name]
+        else:
+            return self._ctx[name]
 
     def setCustomAttribute(self, name: str, value: Any):
         self._ctx[name] = value

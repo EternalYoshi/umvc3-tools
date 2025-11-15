@@ -86,6 +86,19 @@ class BlenderModelImporter(ModelImporterBase):
         matrix.transpose()
         return matrix
 
+    def convertMatrixToNclMat44(self, matrix):
+        """Reverse of convertNclMat44ToMatrix()"""
+        mtx = matrix.copy()
+        mtx.transpose()  # Blender is column-major, NCL is row-major
+
+        ncl_mat = [
+            self.convertPoint4ToNclVec4(mtx[0]),
+            self.convertPoint4ToNclVec4(mtx[1]),
+            self.convertPoint4ToNclVec4(mtx[2]),
+            self.convertPoint4ToNclVec4(mtx[3]),
+        ]
+        return ncl_mat
+
     # Import functions
     def importPrimitive( self, primitive, envelopeIndex, indexStream, vertexStream, context ):
         def setUVMap(mesh, faces,array,name):
@@ -402,24 +415,53 @@ class BlenderModelImporter(ModelImporterBase):
             if albedo_map:
                 albedo_tex = nodes.new("ShaderNodeTexImage")
                 albedo_tex.image = albedo_map
+                albedo_tex.location.x = -900
+                albedo_tex.location.y = 300
                 bpy_material.node_tree.links.new(albedo_tex.outputs["Color"], principled_bsdf.inputs["Base Color"])
 
             specular_map = self.loadTextureSlot(material, "tSpecularMap", context)
             if specular_map:
                 metalness_tex = nodes.new("ShaderNodeTexImage")
                 metalness_tex.image = specular_map
+                metalness_tex.location.x = -900
+                metalness_tex.location.y = 0
+
+
+                #Specular Maps are sensitive in Marvel 3 so we have to compensate for that to get closer to the desired lighting.
+                metalness_tex_power = nodes.new("ShaderNodeMath")
+                metalness_tex_power.operation = 'POWER'
+                metalness_tex_power.inputs[1].default_value  = 0.250
+
+                metalness_tex_power.location.x = -300
+                metalness_tex_power.location.y = 0
+
+                bpy_material.node_tree.links.new(metalness_tex.outputs["Color"], metalness_tex_power.inputs[0])
 
                 #Sets the Color Space to Non-Color so the material displays properly.
                 metalness_tex.image.colorspace_settings.name = 'Non-Color'                
-                bpy_material.node_tree.links.new(metalness_tex.outputs["Color"], principled_bsdf.inputs["Metallic"])
+                bpy_material.node_tree.links.new(metalness_tex_power.outputs["Value"], principled_bsdf.inputs["Metallic"])
 
             normal_map = self.loadTextureSlot(material, "tNormalMap", context)
             if normal_map:
                 normal_map_node = nodes.new("ShaderNodeNormalMap")
+                normal_map_node.location.x = -200
+                normal_map_node.location.y = -100
+
                 normal_map_tex = nodes.new("ShaderNodeTexImage")
+                normal_map_tex.location.x = -900
+                normal_map_tex.location.y = -300
+
                 normal_map_separate_color = nodes.new("ShaderNodeSeparateColor")
+                normal_map_separate_color.location.x = -650
+                normal_map_separate_color.location.y = -300
+
                 normal_map_invert = nodes.new("ShaderNodeInvert")
+                normal_map_invert.location.x = -650
+                normal_map_invert.location.y = -500
+
                 normal_map_combine = nodes.new("ShaderNodeCombineColor")
+                normal_map_combine.location.x = -400
+                normal_map_combine.location.y = -200
 
                 # Swap the red and alpha channels of the normal map
                 # normal_map_pixels = np.array(normal_map.pixels)
@@ -491,7 +533,12 @@ class BlenderModelImporter(ModelImporterBase):
 
     def createJointCustomAttribute( self, obj ) -> EditorCustomAttributeSetProxy:
         assertBlenderMode('OBJECT')
-        bone = self.armature.bones.get(obj.getName())
+        
+        #Because Object Mode Bone properties are not accessible in a script, 
+        #I'm adding these MT Attributes to the respective Pose bone instead.
+
+        bone = self.armatureObj.pose.bones[obj.getName()]
+        #bone = self.armature.bones.get(obj.getName())
         return BlenderCustomAttributeSetProxy(bone)
 
     def importModel(self, modFilePath, context):
