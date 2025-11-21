@@ -23,6 +23,9 @@ classes = [
     modules.model_export.SUB_PT_MOD_OT_Choose_Reference_Model_For_Export,
     modules.model_export.SUB_PT_MOD_OT_Choose_Metadata_For_Export_YML,
     modules.model_export.SUB_PT_MOD_OT_Choose_MRL_YML,
+    modules.model_utils.SUB_PT_OT_ADD_REMOVE_MT_STUFF,
+    modules.model_utils.SUB_OP_ADD_MT_ATTRIBUTES,
+    modules.model_utils.SUB_OP_REMOVE_MT_ATTRIBUTES,
     mtlib.properties.ModelImportProperties
     
 ]

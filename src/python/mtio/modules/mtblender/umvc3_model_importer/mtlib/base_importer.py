@@ -165,7 +165,6 @@ class ModelImporterBase(ABC):
             editorJointArray
         )
             
-
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:
         self.logger.debug( 'decoding faces')
         editorFaceArray = self.createArray()
