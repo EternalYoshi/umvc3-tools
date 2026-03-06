@@ -29,7 +29,7 @@ class ModelImportProperties(PropertyGroup):
     import_withmetadata: BoolProperty(
         name='Import With Metadata.',
         description='Determines whether or not to use Metadata when importing. Disable when using custom skeletons',
-        default=True,
+        default=False,
     )
     metadata_file: StringProperty(
         name = 'Optional Metadata File',
@@ -111,7 +111,7 @@ class ModelImportProperties(PropertyGroup):
     anim_import_withmetadata: BoolProperty(
         name='Import With Metadata.',
         description='Determines whether or not to use Metadata when importing. Uncheck if using custom skeleton or unsure',
-        default=True,
+        default=False,
     )
     anim_metadata_file: StringProperty(
         name = 'Optional Metadata File',
@@ -167,7 +167,7 @@ class ModelImportProperties(PropertyGroup):
     export_withmetadata: BoolProperty(
         name='Import With Metadata.',
         description='Determines whether or not to use Metadata when exporting',
-        default=True,
+        default=False,
     )    
     export_metadata_file: StringProperty(
         name = 'Optional Metadata File',
@@ -250,6 +250,6 @@ class ModelImportProperties(PropertyGroup):
     )
     generate_envelopes: BoolProperty(
         name='Generate Envelopes',
-        description='Produces skin data for exporting. Leave Unchecked if using a custom skeleton',
+        description='Produces skin data for exporting. Leave unchecked if using a custom skeleton. Recommended to leave on for stages',
         default=True,
     )    

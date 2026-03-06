@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List
 from copy import deepcopy
-import bpy
+import bpy, mathutils
 from base_editor import *
 import util
 from ncl import *
@@ -259,21 +259,105 @@ class ModelExporterBase(ABC):
         return True
 
     def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
-        worldMtx = node.getTransform()
+        
+        worldMtx = node.node.matrix_local.copy()
         if node.node.parent is None or node.getParent() is None:
              parentWorldMtx = nclCreateMat44()
         elif self.shouldExportBoneNode( node.getParent() ):
             parentWorldMtx = node.getParent().getTransform()
         #parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportBoneNode( node.getParent() ) else nclCreateMat44()
-        localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
+        
+        #So this is how to get the Mt Attributes...?
+        Filler = None
+        attribs = self.getJointCustomAttributeData( node, Filler )
+
+        arm = bpy.context.object
+        #bpy.ops.object.mode_set(mode='EDIT')
+        #pose_bones = arm.data.pose.bones
+        #PMbone = pose_bones[node.node.name]
+
+        #Going to get both the current Bone's ID and the parent bone's ID.
+        CurrentID = attribs.id
+
+        #Reversing tail direction fix.
+        tailRotationMatrix = mathutils.Matrix((
+            (0.0,  1.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0, 0.0),
+            (0.0,  0.0, 1.0, 0.0),
+            (0.0,  0.0, 0.0, 1.0),
+        ))
+        worldMtx = worldMtx @ tailRotationMatrix.inverted()
+
+        #Reverting the matrix format from Blender to NCL.
+        worldMtx = self.convertMatrixToNclMat44(worldMtx)
+
+
+        #Does this bone even have a parent bone?
+        if(node.node.parent):
+            ParentID = arm.pose.bones[node.node.parent.name]["id"]
+        else:    
+            ParentID = 255
+
+        #Need to take care of the parenting related operations first.
+        if node.getParent() is not None and ParentID != 255:
+            editorParentBone = node.getParent()
+            parentTransform = node.node.parent.matrix_local.copy()
+
+            worldMtx_mat = self.convertNclMat44ToMatrix(worldMtx)
+            parent_mat = self.convertNclMat44ToMatrix(parentTransform)
+
+            world_mat =  worldMtx_mat @ parent_mat.inverted()
+            worldMtx = self.convertMatrixToNclMat44(world_mat)
+
+
+
+        # if node.node.parent is not None:
+        #     PARENTattribs = self.getJointCustomAttributeData( node.node.parent, Filler )
+        #     lMtx = worldMtx
+        #     ParentID = PARENTattribs.id
+
+        localMtx = worldMtx
+        #localMtx = worldMtx
+
+        if node.node.parent is None or node.getParent() is None:
+            # Safe copy whether it's a glm.mat4x4 or mathutils.Matrix
+            if hasattr(self.transformMtxNoScale, "copy"):
+                tmat = self.transformMtxNoScale.copy()
+            else:
+                # Convert GLM mat4x4 to mathutils.Matrix manually
+                tmat = mathutils.Matrix([list(row) for row in self.transformMtxNoScale])
+            localMtx_mat = self.convertNclMat44ToMatrix(localMtx)
+            localMtx = self.convertMatrixToNclMat44(tmat.inverted() @ localMtx_mat)
+            
         if self.plugin.config.exportBakeScale:
-            localMtx[3] *= NclVec4((self.plugin.config.exportScale, self.plugin.config.exportScale, self.plugin.config.exportScale, 1))
-            if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
-                localMtx = self.transformMtxNoScale * localMtx
-        else:
-            if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
-                localMtx = self.transformMtx * localMtx
+            inv_scale = 1.0 / self.plugin.config.exportScale
+            localMtx[3] = self.nclVec4Multiply(localMtx[3], (inv_scale, inv_scale, inv_scale, 1.0))
+
+        # A hopefully failure proof way to convert the matrix to a Ncl Matrix.
+        if not isinstance(localMtx, NclMat44):
+            try:
+                localMtx = NclMat44(localMtx)
+            except Exception:
+                localMtx = NclMat44([list(row) for row in localMtx])
+
         return localMtx
+
+    # def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
+    #     worldMtx = node.getTransform()
+    #     if node.node.parent is None or node.getParent() is None:
+    #          parentWorldMtx = nclCreateMat44()
+    #     elif self.shouldExportBoneNode( node.getParent() ):
+    #         parentWorldMtx = node.getParent().getTransform()
+    #     #parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportBoneNode( node.getParent() ) else nclCreateMat44()
+    #     localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
+    #     if self.plugin.config.exportBakeScale:
+    #         localMtx[3] *= NclVec4((self.plugin.config.exportScale, self.plugin.config.exportScale, self.plugin.config.exportScale, 1))
+    #         if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
+    #             localMtx = self.transformMtxNoScale * localMtx
+    #     else:
+    #         if node.getParent() is None or node.node.parent is None or not self.shouldExportBoneNode(node.getParent()):
+    #             localMtx = self.transformMtx * localMtx
+    #     return localMtx
 
     def getNodeLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform()
@@ -594,7 +678,7 @@ class ModelExporterBase(ABC):
                 
                 self.model.primitives.append( prim )
         
-    def processMeshes( self ):
+    def processMeshes( self, mip ):
         if not self.config.exportPrimitives:
             self.logger.info('exporting meshes skipped because it has been disabled through the config')
             return
@@ -605,7 +689,17 @@ class ModelExporterBase(ABC):
         for i, editorNode in enumerate( meshNodes ):
             self.updateProgress('Processing meshes', i, len( meshNodes ) )
             self.processMesh( editorNode )
+
+            #Going to add the group reference to this node.
+            obj = bpy.data.objects.get(editorNode.node.name)
+            if obj.parent:
+                editorNode.group = obj
+            else:
+                editorNode.group = None
+            #editorNode.group = group
+
             self.processedNodes.add( editorNode )
+            self.model.primitives.append(editorNode)
             
     def iterGroupNodes( self ):
         # process all groups in the scene
@@ -806,7 +900,7 @@ class ModelExporterBase(ABC):
         # the bones in the scene
         self.processBones(mip)
         self.processEnvelope()
-        self.processMeshes()
+        self.processMeshes(mip)
         self.writeBinaries()
         
         self.updateProgress( 'Done', 0 )
