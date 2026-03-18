@@ -1593,7 +1593,7 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             #edit_bones[MetaHandR].parent = IK_HandR
 
             bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
-            pose_bones = bpy.data.objects['Armature'].pose.bones
+            pose_bones = obj.pose.bones
 
             #Adds Constraints to Feet Bones.
             LFootBone = pose_bones[MetaFootL]
@@ -1820,7 +1820,7 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
             #edit_bones["jnt_15"].parent = IK_HandR
 
             bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
-            pose_bones = bpy.data.objects['Armature'].pose.bones
+            pose_bones = obj.pose.bones
 
             #Adds Constraints to Feet Bones.
             LFootBone = pose_bones["jnt_18"]
