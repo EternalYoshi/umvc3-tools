@@ -4,10 +4,10 @@ Binary texture (.TEX) serialization module.
 
 from dataclasses import dataclass
 from typing import Optional
-import target
-import util
-from ncl import *
-from dds import *
+from . import target
+from . import util
+from .ncl import *
+from .dds import *
 
 class rTextureHeaderDesc(object):
     def __init__( self, value=0 ):

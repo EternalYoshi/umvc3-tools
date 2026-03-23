@@ -5,7 +5,7 @@ Module containing a texconv wrapper interface to simplify calling texconv from p
 import subprocess
 import os
 import io
-import util
+from . import util
 
 def _getScriptDir():
     return os.path.dirname(os.path.realpath(__file__))

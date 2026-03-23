@@ -2,7 +2,7 @@
 Various model-related utility functions.
 '''
 
-from ncl import *
+from .ncl import *
 
 class imModelBounds:
     def __init__( self ):

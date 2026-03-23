@@ -8,11 +8,11 @@ from dataclasses import dataclass
 import os
 from typing import List, Optional, Tuple
 import yaml
-from rmaterial import *
-import mvc3materialnamedb
-import mvc3shaderdb
-from ncl import *
-import log
+from .rmaterial import *
+from . import mvc3materialnamedb
+from . import mvc3shaderdb
+from .ncl import *
+from . import log
               
 class imConstantBufferCBMaterial:
     def __init__( self ):

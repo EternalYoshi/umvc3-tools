@@ -439,7 +439,7 @@ class BlenderModelImporter(ModelImporterBase):
 
                 #Sets the Color Space to Non-Color so the material displays properly.
                 metalness_tex.image.colorspace_settings.name = 'Non-Color'                
-                bpy_material.node_tree.links.new(metalness_tex_power.outputs["Value"], principled_bsdf.inputs["Metallic"])
+                bpy_material.node_tree.links.new(metalness_tex_power.outputs["Value"], principled_bsdf.inputs["Roughness"])
 
             normal_map = self.loadTextureSlot(material, "tNormalMap", context)
             if normal_map:
@@ -487,6 +487,22 @@ class BlenderModelImporter(ModelImporterBase):
                 # normal_map_tex.image.colorspace_settings.name = 'Non-Color'                
                 # bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_node.inputs["Color"])
                 # bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
+            
+            #Light Maps. tOcclusionMap
+            light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
+            if light_map:
+                light_map_tex = nodes.new("ShaderNodeTexImage")   
+                light_map_tex.image = light_map
+                #Not sure how to properly apply the light map to the Blender scene so we'll just put the texture in the shading tab separate from the rest.
+                light_map_tex.location.x = -400
+                light_map_tex.location.y = 800             
+
+                #Attempt to create a UV Map Node & attach it.
+                light_map_UVMap = nodes.new("ShaderNodeUVMap")
+                light_map_UVMap.uv_map = "UVUnique"
+                light_map_UVMap.location.x = -550
+                light_map_UVMap.location.y = 800
+                bpy_material.node_tree.links.new(light_map_UVMap.outputs["UV"], light_map_tex.inputs["Vector"])
 
             # normal_map = self.loadTextureSlot(material, "tNormalMap")
             # if normal_map:
@@ -533,16 +549,13 @@ class BlenderModelImporter(ModelImporterBase):
 
     def createJointCustomAttribute( self, obj ) -> EditorCustomAttributeSetProxy:
         assertBlenderMode('OBJECT')
-        
-        #Because Object Mode Bone properties are not accessible in a script, 
-        #I'm adding these MT Attributes to the respective Pose bone instead.
 
+        # #Because Object Mode Bone properties are not accessible in a script, 
+        # #I'm adding these MT Attributes to the respective Pose bone instead.
         bone = self.armatureObj.pose.bones[obj.getName()]
-        #bone = self.armature.bones.get(obj.getName())
+
+        # bone = self.armature.bones.get(obj.getName())
         return BlenderCustomAttributeSetProxy(bone)
 
     def importModel(self, modFilePath, context):
         super().importModel(modFilePath, context)
-
-#This point is where the Animation related code begins.
-#class BlenderAnimationImporter(AnimImporterBase):        

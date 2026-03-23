@@ -2,8 +2,8 @@
 from dataclasses import dataclass
 import os
 from typing import Any, Dict, Iterable, List
-from immaterial import imMaterialInfo, imMaterialLib
-import util
+from .immaterial import imMaterialInfo, imMaterialLib
+from . import util
 import numpy as np
 
 @dataclass

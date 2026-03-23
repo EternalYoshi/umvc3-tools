@@ -3,11 +3,11 @@ Intermediate (im) model representation to simplify model conversion from foreign
 '''
 
 from dataclasses import dataclass
-from ncl import *
-from rmodel import *
-import vertexcodec
-import modelutil
-from immaterial import *
+from .ncl import *
+from .rmodel import *
+from . import vertexcodec
+from . import modelutil
+from .immaterial import *
 import re
 from copy import copy, deepcopy
 import sys

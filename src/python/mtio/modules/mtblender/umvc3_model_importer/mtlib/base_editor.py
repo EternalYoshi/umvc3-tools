@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
-import log
+from . import log
 import yaml
 import os
 import datetime
-from ncl import NclMat44
+from .ncl import NclMat44
 
 class EditorArrayProxy(ABC):
     def __init__(self) -> None:

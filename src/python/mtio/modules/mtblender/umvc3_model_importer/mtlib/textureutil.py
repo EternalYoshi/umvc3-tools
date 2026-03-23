@@ -1,9 +1,9 @@
 import os
 
-import util
-from rtexture import *
-import texconv
-import log
+from . import util
+from .rtexture import *
+from . import texconv
+from . import log
 from PIL import Image
 
 def doesTextureUseAlpha( textureFilePath: str ) -> bool:

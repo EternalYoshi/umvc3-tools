@@ -4,9 +4,9 @@ Used to give names to object ids and store online-safe data about a model
 '''
 
 import os
-from rmodel import *
-import util
-from ncl import *
+from .rmodel import *
+from . import util
+from .ncl import *
 
 try:
     import ruamel.yaml as yaml

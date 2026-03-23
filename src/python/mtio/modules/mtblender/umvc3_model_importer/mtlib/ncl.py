@@ -4,7 +4,7 @@ Wraps types in an interface mirroring that of Noesis' types.
 '''
 import struct
 import math
-import libtarget
+from . import libtarget
 
 def nclTupleToList( tup ):
     return [item for item in tup]

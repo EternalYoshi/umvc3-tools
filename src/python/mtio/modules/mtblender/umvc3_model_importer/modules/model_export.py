@@ -209,28 +209,16 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
     bl_idname = 'umvc3_model_importer.export_using_settings'
     bl_label = "Export_Model_Using_Settings"
 
-    # def invoke(self, context, event):  # pragma: no cover
-    #     context.window_manager.fileselect_add(self)
-    #     return {'RUNNING_MODAL'}
-
-    # @classmethod
-    # def poll(self, context):  # pragma: no cover
-    #     if not bpy.context.selected_objects:
-    #         return False
-    #     return True
-
     def execute(self, context):
         mip:ModelImportProperties = context.scene.sub_scene_properties
         print("Variable Check!\n")
         print("Model Chosen: ", mip.export_modelpath)
         print("Chosen Archive Directory: ", mip.extracted_archive_directory)
 
-
         if mip.export_use_reference_model == True:
             print("\n Reference Model to be used: ", mip.export_reference_model_file)
         else:
             print("No Reference Model to be used")
-
 
         if mip.export_withmetadata == True:
             print("\n Metadata is to be used: ", mip.export_metadata_file)

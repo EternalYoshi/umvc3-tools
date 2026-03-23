@@ -96,6 +96,46 @@ class BlenderModelExporter(ModelExporterBase):
                                self.convertPoint3ToNclVec4(v[2], 0), 
                                self.convertPoint3ToNclVec4(v[3], 1)))
 
+    def nclVec4Multiply(self, vec4, scale_tuple):
+        return [vec4[i] * scale_tuple[i] for i in range(4)]
+
+    def convertNclVec4ToPoint4( self, value ):
+        return mathutils.Vector((value[0], value[1], value[2], value[3]))    
+
+    def convertPoint4ToNclVec4(self, point4):
+        # Ensure we can handle both mathutils.Vector and simple tuples/lists.
+        if hasattr(point4, "to_tuple"):
+            return list(point4.to_tuple(4))
+        else:
+            # Fallback.
+            return [float(point4[0]), float(point4[1]), float(point4[2]), float(point4[3])]
+
+    def convertMatrixToNclMat44(self, matrix):
+        """Reverse of convertNclMat44ToMatrix()"""
+        mtx = matrix.copy()
+        mtx.transpose()  # Blender is column-major, NCL is row-major
+
+        ncl_mat = [
+            self.convertPoint4ToNclVec4(mtx[0]),
+            self.convertPoint4ToNclVec4(mtx[1]),
+            self.convertPoint4ToNclVec4(mtx[2]),
+            self.convertPoint4ToNclVec4(mtx[3]),
+        ]
+        return ncl_mat
+
+    def convertNclVec4ToPoint4( self, value ):
+        return mathutils.Vector((value[0], value[1], value[2], value[3]))
+        
+    def convertNclMat44ToMatrix( self, value ):
+        matrix = mathutils.Matrix((
+            self.convertNclVec4ToPoint4( value[0] ),
+            self.convertNclVec4ToPoint4( value[1] ),
+            self.convertNclVec4ToPoint4( value[2] ),
+            self.convertNclVec4ToPoint4( value[3] )
+        ))
+        matrix.transpose()
+        return matrix
+
     def processMaterial( self, material: EditorMaterialProxy ):
         self.logger.debug( f'processMaterial({material})')
 

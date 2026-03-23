@@ -7,14 +7,14 @@ from typing import Dict, TypedDict
 sys.path.append( os.path.dirname( sys.path[0] ) )
 sys.path.append( os.path.dirname( os.path.dirname( sys.path[0] ) ) )
 
-from ncl import *
-from immaterial import *
-from rmaterial import *
-from rmodel import * 
-import mvc3materialnamedb
-import mvc3shaderdb
-import util
-from rtexture import *
+from ..ncl import *
+from ..immaterial import *
+from ..rmaterial import *
+from ..rmodel import * 
+from .. import mvc3materialnamedb
+from .. import mvc3shaderdb
+from .. import util
+from ..rtexture import *
 
 def scantree(path):
     """Recursively yield DirEntry objects for given directory."""

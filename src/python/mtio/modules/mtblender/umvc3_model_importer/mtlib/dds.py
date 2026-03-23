@@ -2,8 +2,8 @@
 DDS utility library for reading and writing DDS files.
 '''
 
-from ncl import *
-import util
+from .ncl import *
+from . import util
 
 '''
 struct DDS_PIXELFORMAT {

@@ -4,16 +4,16 @@ from dataclasses import dataclass
 import copy
 import yaml
 
-import vertexcodec
-from rmodel import *
-from base_editor import *
-from base_editor import EditorPluginBase
-from shaderinfo import *
-from rtexture import *
-from metadata import *
-import mvc3materialnamedb
-from immaterial import *
-import properties
+from . import vertexcodec
+from .rmodel import *
+from .base_editor import *
+from .base_editor import EditorPluginBase
+from .shaderinfo import *
+from .rtexture import *
+from .metadata import *
+from . import mvc3materialnamedb
+from . immaterial import *
+from . import properties
 
 @dataclass
 class DecodedVertexData:

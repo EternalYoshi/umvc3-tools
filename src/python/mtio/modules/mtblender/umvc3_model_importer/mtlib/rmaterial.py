@@ -4,13 +4,13 @@ Classes and functions for serializing MRL material libraries.
 
 import yaml
 from collections import namedtuple
-from ncl import NclBitStream
+from .ncl import NclBitStream
 
-import util
-from rshader import rShaderObjectId
-import mvc3shaderdb
-import mvc3types
-import target
+from . import util
+from .rshader import rShaderObjectId
+from . import mvc3shaderdb
+from . import mvc3types
+from . import target
 
 class rMaterialTextureInfo: 
 

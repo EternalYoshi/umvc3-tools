@@ -1,7 +1,7 @@
 # Generated file. Any changes made will be lost.
 from typing import Dict
-from shaderinfo import *
-from rshader import rShaderObjectId
+from .shaderinfo import *
+from .rshader import rShaderObjectId
 
 shaderObjects = []
 shaderObjectsByName : Dict[str, ShaderObjectInfo] = {}

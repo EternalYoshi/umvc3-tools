@@ -8,10 +8,10 @@ import os
 import sys
 import re
 
-import mvc3shaderdb
-from rshader import rShaderObjectId
-from ncl import *
-import target
+from . import mvc3shaderdb
+from .rshader import rShaderObjectId
+from .ncl import *
+from . import target
 
 def loadIntoByteArray( path ):
     '''Loads the given file into a byte array'''

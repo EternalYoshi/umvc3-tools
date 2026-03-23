@@ -3,10 +3,10 @@
 '''
 
 from typing import List
-from rshader import rShaderObjectId
-from ncl import *
-import util
-import mvc3shaderdb
+from .rshader import rShaderObjectId
+from .ncl import *
+from . import util
+from . import mvc3shaderdb
 
 class rModelConstants:
     MATERIAL_NAME_LENGTH = 128

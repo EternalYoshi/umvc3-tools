@@ -45,7 +45,7 @@ def register():
 
     from . import modules
     from . import mtlib
-    import properties
+    from .mtlib import properties
 
     from .bpy_classes import classes
     # for cls in reversed(classes):
@@ -64,7 +64,7 @@ def register():
 def unregister():
     from . import modules
     from . import mtlib
-    import properties
+    from mtlib import properties
     
     from .bpy_classes import classes
     for cls in reversed(classes):

@@ -1,6 +1,6 @@
 from . import modules
 from . import mtlib
-import properties
+from .mtlib import properties
 
 classes = [
     #modules.blender_plugin,

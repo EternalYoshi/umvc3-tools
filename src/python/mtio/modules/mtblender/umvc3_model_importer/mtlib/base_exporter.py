@@ -4,15 +4,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 from copy import deepcopy
 import bpy, mathutils
-from base_editor import *
-import util
-from ncl import *
-from immodel import *
-import textureutil
+from .base_editor import *
+from . import util
+from .ncl import *
+from .immodel import *
+from . import textureutil
 import shutil
-from metadata import *
+from .metadata import *
 import yaml
-import properties
+from . import properties
 
 def _tryParseInt(input, base=10, default=None):
     try:
@@ -522,31 +522,24 @@ class ModelExporterBase(ABC):
                 refJoint = self.ref.joints[i]
                 joint.symmetry = self.model.joints[refJoint.symmetryIndex] if refJoint.symmetryIndex != 255 else None
         else:
-            # process all bones in the scene
-            boneNodes = list(self.iterBoneNodes())
 
-            #Rewritten function to get all the joints of the selected Armature.
-            # boneNodes = []
-            # for editorNode in self.getObjects():
-            #     #Gotta get the Armature to get the bones first. Also want to ensure the Armature's name matches.            
-            #     if editorNode.node.type == 'ARMATURE' and editorNode.node.name == bpy.context.selected_objects[0].name:
-            #         arm = editorNode.node
-            #         for i, ChildNode in enumerate(bpy.data.armatures[arm.name].bones):
-            #             boneNodes.append(bpy.data.armatures[arm.name].bones[i])                            
-            #     else:
-            #         continue
+            
 
-            for i, editorNode in enumerate( boneNodes ):
-                self.updateProgress( 'Processing bones', i, len(boneNodes) )
-                self.processBone( mip, editorNode )
-                self.processedNodes.add( editorNode )
+            #Old Code.
+            # # process all bones in the scene
+            # boneNodes = list(self.iterBoneNodes())
 
-            # resolve references
-            for joint in self.model.joints:
-                editorNode = self.jointToEditorNodeMap[joint]
-                jointMeta = self.metadata.getJointByName( editorNode.getName() )
-                attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
-                joint.symmetry = self.processBone(mip, attribs.symmetryNode ) if attribs.symmetryNode != None else None
+            # for i, editorNode in enumerate( boneNodes ):
+            #     self.updateProgress( 'Processing bones', i, len(boneNodes) )
+            #     self.processBone( mip, editorNode )
+            #     self.processedNodes.add( editorNode )
+
+            # # resolve references
+            # for joint in self.model.joints:
+            #     editorNode = self.jointToEditorNodeMap[joint]
+            #     jointMeta = self.metadata.getJointByName( editorNode.getName() )
+            #     attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
+            #     joint.symmetry = self.processBone(mip, attribs.symmetryNode ) if attribs.symmetryNode != None else None
 
         bpy.ops.object.mode_set(mode='OBJECT',toggle=False)        
 

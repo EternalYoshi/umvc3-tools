@@ -5,12 +5,12 @@ Vertex component encoding & decoding module.
 import struct
 import binascii
 import math
-import target
-import util
+from . import target
+from . import util
 
-from ncl import *
+from .ncl import *
  
-import libtarget
+from . import libtarget
 
 if libtarget.noesis:
     # Noesis implementation
