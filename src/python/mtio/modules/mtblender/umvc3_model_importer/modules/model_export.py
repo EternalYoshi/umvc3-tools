@@ -20,7 +20,7 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..mtlib.properties import ModelImportProperties
+    from ..mtlib.properties import UMVC3ModelImportProperties
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -38,7 +38,7 @@ class SUB_PT_Model_Export(Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         #scene = context.scene
         layout = self.layout
@@ -132,7 +132,7 @@ class SUB_OP_MOD_ExportModelPath(bpy.types.Operator, ImportHelper):
         return {'RUNNING_MODAL'}  
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.export_modelpath = self.filepath
         newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.export_modelpath).split('.')[0] )
@@ -160,7 +160,7 @@ class SUB_PT_MOD_OT_Choose_Reference_Model_For_Export(bpy.types.Operator, Import
         return {'RUNNING_MODAL'} 
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("For reference model, you chose:\n", self.filepath)
         mip.export_reference_model_file = self.filepath
         return {'FINISHED'}
@@ -180,7 +180,7 @@ class SUB_PT_MOD_OT_Choose_Metadata_For_Export_YML(bpy.types.Operator, ImportHel
         return {'RUNNING_MODAL'} 
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.export_metadata_file = self.filepath
         return {'FINISHED'}
@@ -200,7 +200,7 @@ class SUB_PT_MOD_OT_Choose_MRL_YML(bpy.types.Operator, ImportHelper):
         return {'RUNNING_MODAL'} 
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.existing_mrl_yml = self.filepath
         return {'FINISHED'}
@@ -210,7 +210,7 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
     bl_label = "Export_Model_Using_Settings"
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("Variable Check!\n")
         print("Model Chosen: ", mip.export_modelpath)
         print("Chosen Archive Directory: ", mip.extracted_archive_directory)

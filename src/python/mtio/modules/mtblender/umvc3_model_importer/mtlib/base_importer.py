@@ -204,7 +204,7 @@ class ModelImporterBase(ABC):
         return editorFaceArray
 
     def loadTextureSlot( self, material, slot, context ):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         texturePath = material.getTextureAssignedToSlot( slot )
         if texturePath in [None, '']:
             return None
@@ -285,7 +285,7 @@ class ModelImporterBase(ABC):
 
     def importSkeleton( self, context ):
         self.logger.info('importing skeleton')
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         self.editorRootBone = None
         if mip.import_compatwithlukasscript:
             editorParentBone = None
@@ -326,7 +326,7 @@ class ModelImporterBase(ABC):
             self.editorBoneLookup[ joint.id ] = editorBone
 
     def fixupSkeleton( self, context ):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         if mip.import_compatwithlukasscript and self.editorRootBone is not None:
             self.setUserProp( self.editorRootBone, 'LMTBone', 255 )
 
@@ -346,7 +346,7 @@ class ModelImporterBase(ABC):
         if mrlName != None and os.path.exists( mrlName ):
             self.logger.info(f'loading mrl file from {mrlName}')
             mtl.loadBinaryStream(NclBitStream(util.loadIntoByteArray(mrlName)))
-            mip:ModelImportProperties = context.scene.sub_scene_properties
+            mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
             if mip.convert_mrl_to_yml:
                 mrlYmlPath =  mrlName + '.yml'
                 self.logger.info(f'saving mrl yml to {mrlYmlPath}')
@@ -386,7 +386,7 @@ class ModelImporterBase(ABC):
 
     def calcMatrices( self, context ):
         self.transformMtx = nclCreateMat44()
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         if mip.flip_up_axis:
             self.transformMtx *= util.Y_TO_Z_UP_MATRIX
             
@@ -403,7 +403,7 @@ class ModelImporterBase(ABC):
         self.logger.info(f'script version: {self.plugin.version}')
         self.logger.info(f'import model from {modFilePath}')
         
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         startTime = self.plugin.timeStamp()
         
@@ -415,7 +415,7 @@ class ModelImporterBase(ABC):
         self.basePath = os.path.dirname( modFilePath )
         # self.metadata = self.loadMetadata( mip.metadata_file )
         #Chose to make a dedicated bool for disabling Metadata.
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         if mip.import_withmetadata:
             self.metadata = self.loadMetadata( mip.metadata_file )
         else:

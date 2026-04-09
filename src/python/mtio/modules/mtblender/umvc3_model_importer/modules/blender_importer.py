@@ -149,7 +149,7 @@ class BlenderModelImporter(ModelImporterBase):
         #    mesh.vertex_colors.new(name="KF_COLOR")
         #    mesh.vertex_colors["KF_COLOR"].data.foreach_set("color", colors)
         
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         # apply weights
         if len(vertexData.jointArray) > 0 and mip.import_weights:
@@ -289,7 +289,7 @@ class BlenderModelImporter(ModelImporterBase):
 
     def createBone( self, joint: rModelJoint, name, tfm, parentBone, context ):
         assertBlenderMode('EDIT')
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         def vec_roll_to_mat3(vec, roll):
             #port of the updated C function from armature.c
             #https://developer.blender.org/T39470

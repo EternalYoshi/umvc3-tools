@@ -24,7 +24,7 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..mtlib.properties import ModelImportProperties
+    from ..mtlib.properties import UMVC3ModelImportProperties
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -1143,7 +1143,7 @@ def readM3AanimationData(self,context,filepath):
                 #if bpy.data.objects["Armature"].data.bones.get(f'jnt_{BID}') is None:
                     #contnniue
                 
-                mip:ModelImportProperties = context.scene.sub_scene_properties
+                mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
                 if mip.anim_import_withmetadata == True and mip.anim_metadata_file != "":
                     #This part applies it to the scene, but to Metadata bones.
@@ -1285,7 +1285,7 @@ class SUB_PT_Anim_Import(Panel):
         return False
 
     def draw(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         layout = self.layout
         layout.use_property_split = False        
         obj: bpy.types.Object = context.active_object
@@ -1360,7 +1360,7 @@ class SUB_OP_anim_import(Operator, ImportHelper):
     
     def execute(self, context):
         #keywords = self.as_keywords(ignore=("filter_glob","files"))
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         if self.filepath == '' or Path(self.filepath).is_dir():
             self.report({"ERROR"}, f"There was no file selected......")
             ShowMessageBox("There was no file selected. Cancelling.", "Notice", 'ERROR')
@@ -1390,7 +1390,7 @@ class SUB_PT_MOD_OT_Choose_Anim_Metadata_YML(bpy.types.Operator, ImportHelper):
         return {'RUNNING_MODAL'} 
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.anim_metadata_file = self.filepath
         return {'FINISHED'}    
@@ -1443,7 +1443,7 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
 
         arm = SelObj[(len((bpy.context.selected_objects))- 1)]
 
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         if mip.anim_import_withmetadata == True:
             
@@ -1934,7 +1934,7 @@ class SUB_OP_SELECT_RELEVANT_JOINTS_FOR_BAKING(bpy.types.Operator):
         obj = bpy.context.active_object
         pose_bones = obj.pose.bones
 
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         #Deselects Everything else and then selects the relevant bones.
         bpy.context.active_object.select_set(False)

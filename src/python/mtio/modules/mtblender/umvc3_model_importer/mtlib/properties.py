@@ -10,10 +10,10 @@ from bpy.props import FloatVectorProperty
 
 def register():
         Scene.sub_scene_properties = PointerProperty(
-        type=ModelImportProperties
+        type=UMVC3ModelImportProperties
     )
         
-class ModelImportProperties(PropertyGroup):
+class UMVC3ModelImportProperties(PropertyGroup):
     import_compatwithlukasscript: BoolProperty(
         name='Compatibility With Lukas'' script.',
         description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',

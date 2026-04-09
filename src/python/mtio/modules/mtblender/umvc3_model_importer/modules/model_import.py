@@ -20,8 +20,8 @@ from ..mtlib import util
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..mtlib.properties import ModelImportProperties
-#from ..properties import ModelImportProperties
+    from ..mtlib.properties import UMVC3ModelImportProperties
+#from ..properties import UMVC3ModelImportProperties
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -39,7 +39,7 @@ class SUB_PT_Model_Import(Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         #scene = context.scene
         layout = self.layout
@@ -47,7 +47,7 @@ class SUB_PT_Model_Import(Panel):
 
         #For the File Import path. It's meant to update the input_modelpath variable when the user chooses a file, 
         #as well as allow text input.
-        if '' == mip.input_modelpath:
+        if mip.input_modelpath == '':
             row = layout.row(align=True)
             row.prop(mip, 'input_modelpath')
             row = layout.row(align=True)
@@ -133,7 +133,7 @@ class SUB_OP_MOD_ImportModelPath(bpy.types.Operator, ImportHelper):
         return {'RUNNING_MODAL'}  
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.input_modelpath = self.filepath
         newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.input_modelpath).split('.')[0] )
@@ -163,7 +163,7 @@ class SUB_PT_MOD_OT_Choose_Metadata_YML(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         #paththing = util.getResourceDir() + '/metadata/'
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.metadata_file = self.filepath
         return {'FINISHED'}
@@ -183,7 +183,7 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
     #     return True
 
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("Variable Check!\n")
         print("Model Chosen: ", mip.input_modelpath)
         if mip.import_withmetadata == True:

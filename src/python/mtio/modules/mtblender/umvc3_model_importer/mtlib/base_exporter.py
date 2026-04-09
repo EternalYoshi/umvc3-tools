@@ -824,7 +824,7 @@ class ModelExporterBase(ABC):
         self.logger.info(f'exporting to {path}')
         
         #Chose to make a dedicated bool for disabling Metadata.
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         # start building intermediate model data for conversion
         self.model = imModel()

@@ -24,7 +24,7 @@ from .blender_plugin import *
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..mtlib.properties import ModelImportProperties
+    from ..mtlib.properties import UMVC3ModelImportProperties
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -51,7 +51,7 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
         layout = self.layout
         layout.use_property_split = False        
         obj: bpy.types.Object = context.active_object
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         row = layout.row()
         if obj is None:
             row.label(text="Select a primitive, joint, or group object first.")

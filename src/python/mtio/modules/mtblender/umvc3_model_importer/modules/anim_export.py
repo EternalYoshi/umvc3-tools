@@ -23,7 +23,7 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..mtlib.properties import ModelImportProperties
+    from ..mtlib.properties import UMVC3ModelImportProperties
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -726,7 +726,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
     bpy.ops.object.mode_set(mode = 'POSE', toggle=False)
 
     #To get the export settings.
-    mip:ModelImportProperties = context.scene.sub_scene_properties
+    mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
     try:
 
@@ -1614,7 +1614,7 @@ class SUB_PT_Anim_Export(Panel):
         layout = self.layout
         layout.use_property_split = False        
         obj: bpy.types.Object = context.active_object
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         row = layout.row()
         if obj is None:
             row.label(text="Select an Armature first.")
@@ -1673,7 +1673,7 @@ class SUB_OP_anim_export(Operator, ExportHelper):
         return {'RUNNING_MODAL'}
     
     def execute(self, context):
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         keywords = self.as_keywords(ignore=("filter_glob","files"))
         time_start = time.time()
         WriteM3AanimationData(context, self.filepath, self.read_LoopFrame, self)
@@ -1699,7 +1699,7 @@ class SUB_PT_MOD_OT_Choose_Anim_Export_Metadata_YML(bpy.types.Operator, ImportHe
 
     def execute(self, context):
         #paththing = util.getResourceDir() + '/metadata/'
-        mip:ModelImportProperties = context.scene.sub_scene_properties
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         print("You chose:\n", self.filepath)
         mip.anim_export_metadata_file = self.filepath
         return {'FINISHED'}
