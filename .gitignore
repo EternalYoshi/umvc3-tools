@@ -369,3 +369,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+src/python/mtio/tools/MManNovaCorps.yml
+src/python/mtio/tools/Environment_CM.dds
+src/python/mtio/tools/IROwave02_BM.dds
+src/python/mtio/tools/IROwave02_BM.tex
+src/python/mtio/tools/Environment_CM.tex

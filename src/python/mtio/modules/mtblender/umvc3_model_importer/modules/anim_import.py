@@ -1262,9 +1262,10 @@ def readM3AanimationData(self,context,filepath):
                             PrevTrackType = Keyframe['TrackType']
                             PrevBoneID = Keyframe['BoneID']
                                     
-                                    
-                                    
-                    
+                    #Meant to check for any remaining track data after iterating through the yml and ensures it's not forgotten.                
+                    if Track is not None:
+                        ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, self.import_legacy, mip.anim_import_withmetadata, self.type_b, ArmName)      
+                        del Track[:]
                 
             
             except Exception as e:
