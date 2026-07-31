@@ -21,7 +21,6 @@ classes = [
     modules.cam_import.SUB_OP_cam_import,
     modules.cam_import.SUB_OP_cam_export,
     modules.model_export.SUB_PT_Model_Export,
-    modules.model_export.SUB_PT_Model_Export,
     modules.model_export.SUB_PT_MOD_OT_export,
     modules.model_export.SUB_OP_MOD_ExportModelPath,
     modules.model_export.SUB_PT_MOD_OT_Choose_Reference_Model_For_Export,
