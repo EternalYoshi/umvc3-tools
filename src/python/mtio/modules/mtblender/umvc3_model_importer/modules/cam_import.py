@@ -60,7 +60,7 @@ def read_m3c(path):
  
  
 def read_lmcm(path):
-    """Every populated slot in slot order."""
+    """Every populated slot, in slot order."""
     d = open(path, "rb").read()
     if d[:4] != LMCM_MAGIC:
         raise ValueError("not an LMCM file")
@@ -126,7 +126,6 @@ def slot_label(i):
 # ----------------------------------------------------------------- helpers
  
 def iter_fcurves(holder):
-
     ad = getattr(holder, "animation_data", None)
     action = getattr(ad, "action", None)
     if action is None:
@@ -275,12 +274,14 @@ class SUB_PT_Cam_Import(Panel):
                      text="Import Marvel 3 Camera (.lmcm / .m3c)")
         layout.separator()
         obj = context.active_object
-        row = layout.row(align=True)
+        col = layout.column(align=True)
         if obj is not None and obj.type == "CAMERA":
-            row.operator(SUB_OP_cam_export.bl_idname, icon="EXPORT",
+            col.operator(SUB_OP_cam_follow.bl_idname, icon="CON_TRACKTO",
+                         text="Follow a Character Bone")
+            col.operator(SUB_OP_cam_export.bl_idname, icon="EXPORT",
                          text="Export Selected Camera (.m3c)")
         else:
-            row.label(text="Select a camera to export.")
+            col.label(text="Select a camera to set up or export.")
  
  
 class SUB_OP_cam_import(Operator, ImportHelper):
@@ -294,18 +295,20 @@ class SUB_OP_cam_import(Operator, ImportHelper):
  
     all_slots: BoolProperty(
         name="Import every camera in the file",
-        description="Only applies to .lmcm. Brings in all populated slots at once",
+        description="Only applies to .lmcm.",
         default=False,
     )
     slot: IntProperty(
         name="Slot",
-        description="Which slot to pull out of a .lmcm. Ignored for .m3c. ",
+        description="Which slot to pull out of a .lmcm"
+                    "0-9 hyper, 10-19 THC, 20 win, 50 cinematic",
         default=0, min=0, max=255,
     )
     match_importer: BoolProperty(
         name="Match Model Importer",
         description="Read Flip Up Axis and Scale off the Model Importer panel "
-                    "so the camera lands in the same space as your model. ",
+                    "so the camera lands in the same space as your model. "
+                    "Untick to set them by hand",
         default=True,
     )
     space: EnumProperty(
@@ -454,6 +457,106 @@ class SUB_OP_cam_import(Operator, ImportHelper):
         return {"FINISHED"}
  
  
+class SUB_OP_cam_follow(Operator):
+    """Aim an imported camera's target at a bone on an imported character"""
+    bl_idname = "sub.cam_follow"
+    bl_label = "Follow a Character Bone"
+    bl_options = {"REGISTER", "UNDO"}
+ 
+    armature_name: StringProperty(name="Armature")
+    bone_name: StringProperty(name="Bone")
+    mode: EnumProperty(
+        name="Constraint",
+        items=[("COPY_LOCATION", "Copy Location",
+                "Target sits on the bone head. Keeps the original framing "
+                "distance because the camera still moves on its own track"),
+               ("CHILD_OF", "Child Of",
+                "Target inherits the bone's rotation too. Use when you want "
+                "the shot to swing with the character")],
+        default="COPY_LOCATION",
+    )
+    add_track: BoolProperty(
+        name="Also aim the camera at it",
+        description="Adds a Damped Track so the camera always points at the "
+                    "target. Leave off if you want to keep the imported "
+                    "rotation, including its roll",
+        default=False,
+    )
+    keep_offset: BoolProperty(
+        name="Keep current offset", default=False,
+        description="Preserve where the target sits relative to the bone "
+                    "rather than snapping it onto the bone")
+ 
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == "CAMERA"
+ 
+    def invoke(self, context, event):
+        if not self.armature_name:
+            for o in context.scene.objects:
+                if o.type == "ARMATURE":
+                    self.armature_name = o.name
+                    break
+        return context.window_manager.invoke_props_dialog(self, width=380)
+ 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop_search(self, "armature_name", context.scene, "objects",
+                           text="Armature")
+        arm = bpy.data.objects.get(self.armature_name)
+        if arm is not None and arm.type == "ARMATURE":
+            layout.prop_search(self, "bone_name", arm.data, "bones", text="Bone")
+        else:
+            layout.label(text="Pick an armature first.", icon="ERROR")
+        layout.prop(self, "mode")
+        layout.prop(self, "keep_offset")
+        layout.prop(self, "add_track")
+ 
+    def execute(self, context):
+        cam = context.active_object
+        arm = bpy.data.objects.get(self.armature_name)
+        if arm is None or arm.type != "ARMATURE":
+            self.report({"ERROR"}, "Pick an armature")
+            return {"CANCELLED"}
+        if self.bone_name not in arm.data.bones:
+            self.report({"ERROR"}, "Armature has no bone called '%s'" % self.bone_name)
+            return {"CANCELLED"}
+ 
+        tgt = bpy.data.objects.get(cam.get("m3c_target", "") or "")
+        if tgt is None:
+            tgt = bpy.data.objects.new(cam.name + "_target", None)
+            tgt.empty_display_type = "PLAIN_AXES"
+            tgt.empty_display_size = 20.0 * float(cam.get("m3c_scale", 1.0))
+            context.collection.objects.link(tgt)
+            cam["m3c_target"] = tgt.name
+ 
+        for c in list(tgt.constraints):
+            if c.type in ("COPY_LOCATION", "CHILD_OF"):
+                tgt.constraints.remove(c)
+        con = tgt.constraints.new(self.mode)
+        con.target = arm
+        con.subtarget = self.bone_name
+        if self.mode == "COPY_LOCATION":
+            con.use_offset = self.keep_offset
+        elif self.keep_offset:
+            # Child Of bakes the inverse so the target does not jump
+            con.set_inverse_pending = True
+ 
+        if self.add_track:
+            for c in list(cam.constraints):
+                if c.type in ("DAMPED_TRACK", "TRACK_TO"):
+                    cam.constraints.remove(c)
+            dt = cam.constraints.new("DAMPED_TRACK")
+            dt.target = tgt
+            dt.track_axis = "TRACK_NEGATIVE_Z"
+ 
+        self.report({"INFO"}, "Target now follows %s / %s%s"
+                    % (arm.name, self.bone_name,
+                       ", camera aiming at it" if self.add_track else ""))
+        return {"FINISHED"}
+ 
+ 
 class SUB_OP_cam_export(Operator, ExportHelper):
     bl_idname = "sub.export_cam"
     bl_label = "Export Camera"
@@ -462,17 +565,53 @@ class SUB_OP_cam_export(Operator, ExportHelper):
     filename_ext = ".m3c"
     filter_glob: StringProperty(default="*.m3c", options={"HIDDEN"})
  
+    target_name: StringProperty(
+        name="Target",
+        description="Object the look-at track is read from. Defaults to the "
+                    "empty made on import. Any object works including one "
+                    "constrained to a character bone",
+    )
     use_target: BoolProperty(
-        name="Use the target empty",
-        description="Read the look-at track off the empty made on import. Turn "
-                    "off to project a target along the view axis instead",
+        name="Use a target object",
+        description="Turn off to project a target along the view axis instead, "
+                    "might ruin framing.",
         default=True,
     )
     fallback_distance: FloatProperty(
         name="Fallback distance",
-        description="How far ahead to place the target when there is no empty",
+        description="How far ahead to place the target when there is no object",
         default=400.0, min=0.001,
     )
+    use_scene_range: BoolProperty(
+        name="Use scene frame range", default=True)
+    frame_start: IntProperty(name="Start", default=0)
+    frame_end: IntProperty(name="End", default=80)
+ 
+    def invoke(self, context, event):
+        obj = context.active_object
+        if obj is not None and not self.target_name:
+            self.target_name = obj.get("m3c_target", "") or ""
+        self.frame_start = context.scene.frame_start
+        self.frame_end = context.scene.frame_end
+        return ExportHelper.invoke(self, context, event)
+ 
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        col = layout.column()
+        col.prop(self, "use_target")
+        sub = col.column()
+        sub.enabled = self.use_target
+        sub.prop_search(self, "target_name", context.scene, "objects")
+        sub2 = col.column()
+        sub2.enabled = not self.use_target
+        sub2.prop(self, "fallback_distance")
+        col.separator()
+        col.prop(self, "use_scene_range")
+        sub3 = col.column(align=True)
+        sub3.enabled = not self.use_scene_range
+        sub3.prop(self, "frame_start")
+        sub3.prop(self, "frame_end")
  
     @classmethod
     def poll(cls, context):
@@ -487,7 +626,12 @@ class SUB_OP_cam_export(Operator, ExportHelper):
  
         tgt = None
         if self.use_target:
-            tgt = bpy.data.objects.get(obj.get("m3c_target", "") or "")
+            tgt = bpy.data.objects.get(
+                self.target_name or obj.get("m3c_target", "") or "")
+            if tgt is None:
+                self.report({"ERROR"}, "No target object. Pick one or untick "
+                                       "Use a target object")
+                return {"CANCELLED"}
  
         c = Cam()
         c.slot = int(obj.get("m3c_slot", 0))
@@ -495,11 +639,23 @@ class SUB_OP_cam_export(Operator, ExportHelper):
         c.floats = list(obj.get("m3c_floats", [0.0, 1.5, 0.0, 1.0, 0.0]))
         c.eye, c.target, c.rot, c.fov, c.roll = [], [], [], [], []
  
+        if self.use_scene_range:
+            f0, f1 = scene.frame_start, scene.frame_end
+        else:
+            f0, f1 = self.frame_start, self.frame_end
+        if f1 < f0:
+            self.report({"ERROR"}, "End frame is before start frame")
+            return {"CANCELLED"}
+ 
         saved = scene.frame_current
         try:
-            for j in range(scene.frame_start, scene.frame_end + 1):
+            for j in range(f0, f1 + 1):
                 scene.frame_set(j)
-                mw = obj.matrix_world
+                # evaluated, not the original datablock, or constraints and
+                # drivers are ignored and a follow rig exports as if it were
+                # never set up
+                dg = context.evaluated_depsgraph_get()
+                mw = obj.evaluated_get(dg).matrix_world
                 bq = mw.to_quaternion()
                 if zup:
                     bq = Q_ZUP.inverted() @ bq
@@ -520,7 +676,7 @@ class SUB_OP_cam_export(Operator, ExportHelper):
                 c.roll.append(math.atan2(right.y, up.y))
  
                 if tgt is not None:
-                    t = tgt.matrix_world.to_translation()
+                    t = tgt.evaluated_get(dg).matrix_world.to_translation()
                     if zup:
                         c.target.append((t.x / scale, t.z / scale, -t.y / scale))
                     else:
@@ -531,7 +687,7 @@ class SUB_OP_cam_export(Operator, ExportHelper):
                                      eye[1] + fwd.y * d,
                                      eye[2] + fwd.z * d))
  
-                cd = obj.data
+                cd = obj.evaluated_get(dg).data
                 ang = cd.angle_y if cd.sensor_fit == "VERTICAL" else cd.angle_x
                 c.fov.append(math.degrees(ang))
         finally:
@@ -548,4 +704,3 @@ class SUB_OP_cam_export(Operator, ExportHelper):
  
         self.report({"INFO"}, "Exported %d frames to slot %d" % (c.frames, c.slot))
         return {"FINISHED"}
- 
