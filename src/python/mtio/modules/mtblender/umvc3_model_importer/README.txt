@@ -9,3 +9,4 @@ pip.main(['install', 'pyyaml', 'ruamel.yaml', 'numpy', 'pyglm==2.7.0', 'ptvsd', 
 After that restart Blender.
 
 - by TGE & Eternal Yoshi with thanks to Archer and others for stage material definitions.
+Also thanks to Archer for his work on getting Camera features to work.
