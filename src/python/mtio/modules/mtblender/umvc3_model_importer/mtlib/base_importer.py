@@ -261,6 +261,11 @@ class ModelImporterBase(ABC):
             self.setGroupCustomAttributes( group, editorGroup )
             self.editorGroupArray.append( editorGroup )
             self.editorGroupLookup[ group.id ] = editorGroup
+            self.parentGroupToArmature( editorGroup )
+    
+    def parentGroupToArmature( self, editorGroup ):
+        """Override in the editor backend. Default is a no-op."""
+        pass
 
     def importPrimitives( self, context ):
         self.logger.info('importing primitives')

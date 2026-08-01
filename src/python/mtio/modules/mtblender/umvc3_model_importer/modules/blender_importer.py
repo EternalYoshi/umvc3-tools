@@ -247,6 +247,13 @@ class BlenderModelImporter(ModelImporterBase):
         #blendGroup.location = group.boundingSphere[0], group.boundingSphere[1], group.boundingSphere[2]
         return BlenderNodeProxy(blendGroup)
 
+    def parentGroupToArmature( self, editorGroup ):
+        if self.armatureObj is None:
+            return
+        obj = editorGroup.unwrap()
+        obj.parent = self.armatureObj
+        obj.matrix_parent_inverse = self.armatureObj.matrix_world.inverted()
+
     def importSkeleton( self, context ):
         # Create armature
         self.armature = bpy.data.armatures.new('Armature')
