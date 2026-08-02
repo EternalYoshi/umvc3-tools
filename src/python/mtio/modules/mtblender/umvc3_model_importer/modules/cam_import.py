@@ -154,7 +154,17 @@ def iter_fcurves(holder):
             for bag in bags:
                 for fc in getattr(bag, "fcurves", ()):
                     yield fc
- 
+
+
+def _has_import_tag(obj):
+    return obj is not None and "m3c_zup" in obj
+
+
+def resolve_export_space(context, obj):
+    if _has_import_tag(obj):
+        return bool(obj["m3c_zup"]), float(obj.get("m3c_scale", 1.0)) or 1.0
+    zup, scale, _ = read_importer_settings(context)
+    return zup, scale
  
 def read_importer_settings(context):
     props = getattr(context.scene, "sub_scene_properties", None)
@@ -582,6 +592,25 @@ class SUB_OP_cam_export(Operator, ExportHelper):
         description="How far ahead to place the target when there is no object",
         default=400.0, min=0.001,
     )
+
+    match_source: BoolProperty(
+        name="Match import settings",
+        description="Use the space and scale this camera was imported with. "
+                    "Untick for a camera this addon did not create, such as "
+                    "one you built by hand or brought in from elsewhere",
+        default=True,
+    )
+
+    space: EnumProperty(
+        name="Space",
+        items=[("ZUP", "Z Up (Flip Up Axis on)",
+                "Camera sits in Blender's usual orientation, matching a model "
+                "imported with Flip Up Axis on"),
+               ("GAME", "Y Up (Flip Up Axis off)",
+                "Camera is already in raw game space")],
+        default="ZUP",
+    )
+    scale: FloatProperty(name="Scale", default=1.0, min=0.0001, max=1000.0)
     use_scene_range: BoolProperty(
         name="Use scene frame range", default=True)
     frame_start: IntProperty(name="Start", default=0)
@@ -591,6 +620,10 @@ class SUB_OP_cam_export(Operator, ExportHelper):
         obj = context.active_object
         if obj is not None and not self.target_name:
             self.target_name = obj.get("m3c_target", "") or ""
+        zup, scale = resolve_export_space(context, obj)
+        self.space = "ZUP" if zup else "GAME"
+        self.scale = scale
+        self.match_source = True
         self.frame_start = context.scene.frame_start
         self.frame_end = context.scene.frame_end
         return ExportHelper.invoke(self, context, event)
@@ -599,6 +632,17 @@ class SUB_OP_cam_export(Operator, ExportHelper):
         layout = self.layout
         layout.use_property_split = True
         col = layout.column()
+        col.prop(self, "match_source")
+        sub0 = col.column()
+        sub0.enabled = not self.match_source
+        sub0.prop(self, "space")
+        sub0.prop(self, "scale")
+        if self.match_source:
+            zup, scale = resolve_export_space(context, context.active_object)
+            tag = "imported" if _has_import_tag(context.active_object) else "model importer"
+            col.label(text="Using %s, scale %g  (from %s)"
+                           % ("Z Up" if zup else "Y Up", scale, tag), icon="INFO")
+        col.separator()
         col.prop(self, "use_target")
         sub = col.column()
         sub.enabled = self.use_target
@@ -621,8 +665,10 @@ class SUB_OP_cam_export(Operator, ExportHelper):
     def execute(self, context):
         obj = context.active_object
         scene = context.scene
-        scale = float(obj.get("m3c_scale", 1.0))
-        zup = bool(obj.get("m3c_zup", False))
+        if self.match_source:
+            zup, scale = resolve_export_space(context, obj)
+        else:
+            zup, scale = self.space == "ZUP", self.scale
  
         tgt = None
         if self.use_target:
