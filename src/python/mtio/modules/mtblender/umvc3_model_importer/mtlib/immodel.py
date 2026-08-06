@@ -13,12 +13,7 @@ from copy import copy, deepcopy
 import sys
 
 def _isValidBoundingSphere( bs ):
-    '''Returns if the bounding sphere is usable.
-
-    Only the radius has to be non zero. Testing the centre components too threw away
-    any sphere centred exactly on an axis, which for a character symmetric about x is
-    most of them, and the recomputed replacement was garbage for groups with no
-    geometry in them.'''
+    # Returns if the bounding sphere is usable.
     return bs != None and bs[3] != 0
         
 class imVertexWeight:
@@ -42,7 +37,7 @@ class imEnvelope:
         self.index = index if index != None else sys.maxsize
         
 class imCacheVertex:
-    '''Trivially hash-able container for optimizing the vertex cache'''
+    # Trivially hash-able container for optimizing the vertex cache
     def __init__( self ):
         self.position = ()
         self.normal = ()
@@ -545,9 +540,7 @@ class imVertexFormat(object):
     
     @staticmethod
     def determineBestVertexFormat( model, prim ):
-        '''
-        Determine the best vertex format according to the data contained in the primitive.
-        '''
+        # Determine the best vertex format according to the data contained in the primitive.
    
         fmt = imVertexFormat()
         maxUsedBoneCount = prim.getMaxUsedBoneCount()
@@ -625,10 +618,8 @@ class imPrimitive(object):
         return totalMaxUsedBoneCount
 
     def reduceWeights( self, maxWeightsPerVertex ):
-        '''
-        Reduce the weights in the primitive to be less or equal to the given max weights per vertex.
-        The most influential weights are kept, and the remainder is equally distributed.
-        '''
+        
+        # Reduce the weights in the primitive to be less or equal to the given max weights per vertex.
         
         # pick 4 most influential weights and remove the others
         if self.isSkinned():
@@ -673,9 +664,7 @@ class imPrimitive(object):
         return self.uvPrimary is not None and len( self.uvPrimary ) > 0
     
     def makeDirect( self ):
-        '''
-        Removes the need for the index buffer by duplicating all the vertex data according to it.
-        '''
+        # Removes the need for the index buffer by duplicating all the vertex data according to it.
         if not self.isIndexed():
             return
         else:
@@ -701,9 +690,7 @@ class imPrimitive(object):
         self.uvExtend = _trim( progressCb, self.uvExtend )
     
     def makeIndexed( self, progressCb = None ):
-        '''
-        Makes the model indexed by removing all duplicate vertex data and generating an index buffer that refers to each vertex component by index.
-        '''
+        # Makes the model indexed by removing all duplicate vertex data and generating an index buffer that refers to each vertex component by index.
         self.makeDirect()
         
         # copy vertex data
