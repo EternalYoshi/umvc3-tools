@@ -95,6 +95,7 @@ class imVertex(object):
         self.occlusion = 0
         self.weights = [0,0,0,0]
         self.jointIds = [0,0,0,0]
+        self.jointId = 0
         self.uvPrimary = NclVec2()
         self.uvSecondary = NclVec2()
         self.uvUnique = NclVec2()
@@ -413,7 +414,10 @@ class imVertexIASkinBridge1wt(imVertex):
         stream.writeUShort( vertexcodec.encodeFS16( self.position[0] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[1] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[2] ) )
-        stream.writeShort( vertexcodec.encodeS16( self.jointIds[0] ) )
+        # jointId, not jointIds[0]. toBinaryModel only ever sets the singular field
+        # for 1 weight formats, so reading the array wrote a hardcoded 0 and every
+        # vertex using this format ended up rigged to the root.
+        stream.writeShort( vertexcodec.encodeS16( self.jointId ) )
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
 
 '''
@@ -1072,8 +1076,12 @@ class imModel:
                 modEnvelope.field04 = envelope.field04
                 modEnvelope.field08 = envelope.field08
                 modEnvelope.field0c = envelope.field0c
-                if _isValidBoundingSphere(envelope.boundingSphere) and envelope.min != None and envelope.max != None:
-                    # copy bounds from model
+                if envelope.boundingSphere != None and envelope.min != None and envelope.max != None:
+                    # Copy bounds from the reference verbatim. Don't run the sphere through
+                    # _isValidBoundingSphere here: retail models carry envelopes with a zero
+                    # radius and min == max (a point), which that check calls invalid, so 38
+                    # of Ryu's 414 were thrown away and replaced with the primitive's bounds.
+                    # min and max being set at all is what marks this as a ref copy.
                     modEnvelope.boundingSphere = envelope.boundingSphere
                     modEnvelope.min = envelope.min
                     modEnvelope.max = envelope.max

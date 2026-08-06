@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import os, sys
+import json
 from dataclasses import dataclass
 import copy
 import yaml
@@ -507,12 +508,39 @@ class ModelImporterBase(ABC):
         attribs.boneMapStartIndex = str( primitive.boneIdStart )
         attribs.envelopeCount = str( primitive.envelopeCount )
         attribs.envelopeIndex = str( envelopeIndex )
+        attribs.envelopes = self.serializeEnvelopes( envelopeIndex, primitive.envelopeCount )
         attribs.id = primitive.id
         attribs.minVertexIndex = str( primitive.minVertexIndex )
         attribs.maxVertexIndex = str( primitive.maxVertexIndex )
         attribs.field2c = primitive.field2c
         attribs.envelopePtr = str( primitive.envelopePtr )
         attribs.index = str( self.model.primitives.index( primitive ) )
+
+    def serializeEnvelopes( self, envelopeIndex, envelopeCount ):
+        # Stash this primitive's envelopes on the node as json. Envelopes have no scene
+        # representation, so without this the only way to keep them across a round trip
+        # is to hand the exporter the original mod as a reference. Joints go in by id
+        # rather than index so a reordered skeleton still resolves.
+        out = []
+        for i in range( envelopeIndex, envelopeIndex + envelopeCount ):
+            if i < 0 or i >= len( self.model.envelopes ):
+                continue
+            env = self.model.envelopes[i]
+            jointId = None
+            if env.jointIndex != 255 and env.jointIndex < len( self.model.joints ):
+                jointId = self.model.joints[ env.jointIndex ].id
+            out.append({
+                'jointId': jointId,
+                'field04': env.field04,
+                'field08': env.field08,
+                'field0c': env.field0c,
+                'bsphere': [ float(v) for v in env.boundingSphere ],
+                'min':     [ float(v) for v in env.min ],
+                'max':     [ float(v) for v in env.max ],
+                'localMtx':[ float(env.localMtx[r][c]) for r in range(4) for c in range(4) ],
+                'field80': [ float(v) for v in env.field80 ],
+            })
+        return json.dumps( out, separators=(',', ':') )
 
     def preprocessWeights( self, primitive: rModelPrimitive, vertexData: DecodedVertexData ) -> PreprocessedWeightData:
         usedEditorBones = []

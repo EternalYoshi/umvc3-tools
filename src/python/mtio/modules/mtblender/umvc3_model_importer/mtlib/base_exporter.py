@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import os
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List
 from copy import deepcopy
@@ -20,6 +21,16 @@ def _tryParseInt(input, base=10, default=None):
     except Exception:
         return default
     
+def _tryParseEnvelopes(raw):
+    # The importer stashes each primitive's envelopes as json on the node.
+    if raw is None or raw == '':
+        return None
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        return parsed if isinstance(parsed, list) and len(parsed) > 0 else None
+    except Exception:
+        return None
+
 def _tryParseFloat(input, default=None):
     try:
         return float(str(input).strip())
@@ -45,6 +56,7 @@ class PrimitiveCustomAttributeData:
     field2c: int
     envelopeCount: int
     envelopeIndex: int
+    envelopes: list
     index: int
     vertexShader: str
 
@@ -194,6 +206,7 @@ class ModelExporterBase(ABC):
                 data.envelopeCount = _tryParseInt(attribs.envelopeCount)
                 data.envelopeIndex = _tryParseInt(attribs.envelopeIndex)
             data.index = _tryParseInt(attribs.index)
+            data.envelopes = _tryParseEnvelopes(attribs.envelopes)
             data.vertexShader = attribs.shaderName
         else:
             data.flags = None
@@ -204,6 +217,7 @@ class ModelExporterBase(ABC):
             data.field2c = None
             data.envelopeCount = None
             data.envelopeIndex = None
+            data.envelopes = None
             data.index = None
             data.vertexShader = None
             
@@ -691,6 +705,12 @@ class ModelExporterBase(ABC):
                     # add envelopes from ref to the primitive
                     for i in range(attribs.envelopeIndex, attribs.envelopeIndex+attribs.envelopeCount):
                         prim.envelopes.append(self.refEnvelopes[i])
+                elif attribs.envelopes != None:
+                    # no reference model, but the importer left the originals on the node
+                    for j, envData in enumerate( attribs.envelopes ):
+                        env = self.buildEnvelopeFromData( envData, j )
+                        if env != None:
+                            prim.envelopes.append( env )
                 elif self.config.exportGenerateEnvelopes:
                     # TODO local transform/pivot, link to joint(s)
                     prim.envelopes.append(imEnvelope())
@@ -715,6 +735,37 @@ class ModelExporterBase(ABC):
                 
                 self.model.primitives.append( prim )
         
+    def buildEnvelopeFromData( self, data, index ):
+        # Rebuild an imEnvelope from what the importer stashed on the node.
+        try:
+            joint = None
+            jointId = data.get('jointId')
+            if jointId != None:
+                joint = self.model.getJointById( jointId )
+            mtx = data.get('localMtx')
+            localMtx = nclCreateMat44((
+                NclVec4(( mtx[0],  mtx[1],  mtx[2],  mtx[3]  )),
+                NclVec4(( mtx[4],  mtx[5],  mtx[6],  mtx[7]  )),
+                NclVec4(( mtx[8],  mtx[9],  mtx[10], mtx[11] )),
+                NclVec4(( mtx[12], mtx[13], mtx[14], mtx[15] )),
+            )) if mtx != None and len(mtx) == 16 else None
+            return imEnvelope(
+                name='env_'+str(index),
+                joint=joint,
+                field04=data.get('field04', 0),
+                field08=data.get('field08', 0),
+                field0c=data.get('field0c', 0),
+                boundingSphere=NclVec4(tuple(data['bsphere'])) if data.get('bsphere') else None,
+                min=NclVec4(tuple(data['min'])) if data.get('min') else None,
+                max=NclVec4(tuple(data['max'])) if data.get('max') else None,
+                localMtx=localMtx,
+                field80=NclVec4(tuple(data['field80'])) if data.get('field80') else None,
+                index=index,
+            )
+        except Exception as e:
+            self.logger.warning( 'could not rebuild a stored envelope: ' + str(e) )
+            return None
+
     def processMeshes( self, mip ):
         if not self.config.exportPrimitives:
             self.logger.info('exporting meshes skipped because it has been disabled through the config')
