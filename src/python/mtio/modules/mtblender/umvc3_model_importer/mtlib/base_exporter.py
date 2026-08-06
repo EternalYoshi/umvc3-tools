@@ -72,7 +72,7 @@ class ModelExporterBase(ABC):
     MAX_VERTEX_COUNT = 26758
     MAX_INDEX_COUNT = 63762
 
-    '''Model scene exporter interface'''
+    # Model scene exporter interface
 
     def __init__( self, plugin: EditorPluginBase ):
         self.plugin: EditorPluginBase = plugin
@@ -251,9 +251,7 @@ class ModelExporterBase(ABC):
         return data
             
     def getMaterialCustomAttributeData( self, material ) -> MaterialCustomAttributeData:
-        '''Read back the MT material state the importer stashed on the editor material.
-        Without this the render state is thrown away and every exported material comes
-        out as whatever the preset happens to be.'''
+        # Read back the MT material state the importer stashed on the editor material.
         data = MaterialCustomAttributeData()
         data.type = None
         data.depthStencilState = None
@@ -271,8 +269,7 @@ class ModelExporterBase(ABC):
         return data
 
     def applyMaterialCustomAttributeData( self, materialInstance, data: MaterialCustomAttributeData ):
-        '''Overlay the preserved state onto a freshly built material instance. Anything
-        that wasn't recorded keeps the template value.'''
+        # Overlay the preserved state onto a freshly built material instance.
         if materialInstance == None or data == None:
             return materialInstance
         if data.type != None: materialInstance.type = data.type
@@ -292,7 +289,7 @@ class ModelExporterBase(ABC):
                None
 
     def shouldExportNode( self, node: EditorNodeProxy ):
-        '''Returns if the node should be included in the export'''
+        # Returns if the node should be included in the export
         if node is None:
             return False
         if node.isHidden():
@@ -302,7 +299,7 @@ class ModelExporterBase(ABC):
         return True
 
     def shouldExportBoneNode( self, node: EditorNodeProxy ):
-        '''Returns if the node should be included in the export'''
+        # Returns if the node should be included in the export
         if node is None:
             return False
         if node.isBoneHidden():
@@ -333,6 +330,7 @@ class ModelExporterBase(ABC):
         # which is only the inverse when scale is 1, so build it properly.
         return self.transformMtx
 
+    # Appropriated some of this code from the RE5 Albam project.
     def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
         worldMtx = self.getBoneWorldMtx( node )
 
@@ -501,7 +499,7 @@ class ModelExporterBase(ABC):
 
         #     yield editorNode
 
-        # # process all bones in the scene(Previous Fixing Attempt)
+        # process all bones in the scene(Previous Fixing Attempt)
         # for editorNode in self.getObjects():
         #     #Gotta get the Armature to get the bones first.
         #     if editorNode.node.type == 'ARMATURE':
