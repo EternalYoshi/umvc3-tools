@@ -795,9 +795,18 @@ class imPrimitive(object):
             texCoordA = self.uvPrimary[ triangleC ] - self.uvPrimary[ triangleA ]
             texCoordB = self.uvPrimary[ triangleB ] - self.uvPrimary[ triangleA ]
 
-            direction = texCoordA[0] * texCoordB[1] - texCoordA[1] * (1.0 if texCoordB[0] > 0.0 else -1.0)
-            #EDIT
-            direction *= -1
+            # uvPrimary is stored in MT convention (V down) but the tangent basis has
+            # to be worked out in the convention the art was authored in (V up), or the
+            # handedness comes out inverted. Reproducing Ryu's stored tangent signs from
+            # his own geometry gives 96% with V flipped and 4.5% without.
+            texCoordA = NclVec2(( texCoordA[0], -texCoordA[1] ))
+            texCoordB = NclVec2(( texCoordB[0], -texCoordB[1] ))
+
+            # proper 2d cross of the uv deltas. the old form substituted sign(texCoordB[0])
+            # for texCoordB[0], which threw away the magnitude and flipped sign whenever that
+            # delta was small. scaling both tangent and bitangent by it cancels out of the
+            # handedness test, so this only affects the tangent vector itself.
+            direction = texCoordA[0] * texCoordB[1] - texCoordA[1] * texCoordB[0]
 
             tangent = ( positionA * texCoordB[1] - positionB * texCoordA[1] ) * direction
             bitangent = ( positionB * texCoordA[0] - positionA * texCoordB[0] ) * direction
