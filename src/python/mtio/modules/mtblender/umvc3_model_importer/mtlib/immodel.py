@@ -575,6 +575,9 @@ class imVertexFormat(object):
         return fmt
 
 class imPrimitive(object):
+    '''
+    Intermediate primitive data container intended to be used for generating optimized data for export
+    '''
     
     def __init__( self, name, materialName, flags=0xFFFF, group=None, 
             lodIndex=0xFF, vertexFlags=None, vertexStride=None, renderFlags=67, 
@@ -604,6 +607,9 @@ class imPrimitive(object):
         self.index = index if index != None else sys.maxsize
 
     def getMaxUsedBoneCount( self ):
+        '''
+        Get the max. number of used bones in the primitive
+        '''
         totalMaxUsedBoneCount = 0
         if self.isSkinned():
             for w in self.weights:
@@ -729,7 +735,8 @@ class imPrimitive(object):
                 cv.uvSecondary = (uvSecondary[i][0], uvSecondary[i][1]) if uvSecondary != None and len(uvSecondary) != 0 else None
                 cv.uvUnique = (uvUnique[i][0], uvUnique[i][1]) if uvUnique != None and len(uvUnique) != 0 else None
                 cv.uvExtend = (uvExtend[i][0], uvExtend[i][1]) if uvExtend != None and len(uvExtend) != 0 else None    
-                cv.tangent = (tangents[i][0], tangents[i][1], tangents[i][2], tangents[i][3]) if tangents != None else None
+                # tangents are generated after this now, so the list is normally empty here.
+                cv.tangent = (tangents[i][0], tangents[i][1], tangents[i][2], tangents[i][3]) if tangents != None and len(tangents) > i else None
 
             if isSkinned:
                 cv.weights = tuple(weights[i].weights)
@@ -773,8 +780,12 @@ class imPrimitive(object):
             self.indices.append( tempIndices[i] )
             
     def generateTangents( self, progressCb=None ):
-        tangents = [NclVec3()] * len(self.positions)
-        bitangents = [NclVec3()] * len(self.positions)
+        # [NclVec3()] * n gives n references to ONE glm vector, and glm's += mutates in
+        # place, so every vertex was accumulating into the same object. Each vertex ended
+        # up with the sum of every triangle in the primitive instead of its own. Building
+        # the list with a comprehension gives each vertex its own vector.
+        tangents = [NclVec3() for _ in range(len(self.positions))]
+        bitangents = [NclVec3() for _ in range(len(self.positions))]
         self.tangents = []
         count = len( self.indices ) if self.isIndexed() else len( self.positions )
 
@@ -962,7 +973,7 @@ class imTag:
             yield tag, value
         
 class imModel:
-    # Intermediate model data
+    '''Intermediate model data'''
 
     def __init__( self, primitives=None, joints=None, materials=None, groups=None,
         center=None, radius=None, min=None, max=None, 

@@ -724,12 +724,17 @@ class ModelExporterBase(ABC):
                 self.logger.debug( "trimming uvs" )
                 prim.removeUnusedUvs( self.progressCallback )
                                 
+                self.logger.debug( "optimizing mesh" )
+                prim.makeIndexed( self.progressCallback )
+
+                # Tangents have to come after indexing. Generated before, every triangle
+                # corner is still its own vertex, so each one gets a flat per face tangent
+                # and no two corners agree, which stops makeIndexed merging anything. Ryu
+                # went from 30k vertices to 99k. Doing it here accumulates across shared
+                # vertices, which is both smooth and what retail stores.
                 if prim.hasUvs():
                     self.logger.debug( "generating tangents" )
                     prim.generateTangents( self.progressCallback )
-                
-                self.logger.debug( "optimizing mesh" )
-                prim.makeIndexed( self.progressCallback )
                 if target.current.useTriStrips:
                     prim.generateTriStrips( self.progressCallback )
                 
