@@ -834,6 +834,15 @@ class imPrimitive(object):
             tangent = nclNormalize( tangent - normal * nclDot( tangent, normal ) )
             bitangent = nclNormalize( bitangent - normal * nclDot( bitangent, normal ) )
 
+            # A mesh with no uv area (every uv identical) gives a degenerate basis, and
+            # normalising it leaves NaN which encodes to a zero tangent. w is only ever
+            # +1 or -1 in retail, so fall back to any vector perpendicular to the normal.
+            if math.isnan( tangent[0] ) or nclLength( tangent ) < 0.0001:
+                axis = NclVec3( (0,0,1) ) if abs( normal[2] ) < 0.9 else NclVec3( (1,0,0) )
+                tangent = nclNormalize( nclCross( normal, axis ) )
+                self.tangents.append( NclVec4( ( tangent[0], tangent[1], tangent[2], 1.0 ) ) )
+                continue
+
             directionCheck = nclDot( nclNormalize( nclCross( normal, tangent ) ), bitangent )
             self.tangents.append( NclVec4( ( tangent[0], tangent[1], tangent[2], (1.0 if directionCheck > 0.0 else -1.0 ) ) ) )
 
