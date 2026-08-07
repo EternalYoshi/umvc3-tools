@@ -575,9 +575,7 @@ class imVertexFormat(object):
         return fmt
 
 class imPrimitive(object):
-    '''
-    Intermediate primitive data container intended to be used for generating optimized data for export
-    '''
+    # Intermediate primitive data container intended to be used for generating optimized data for export
     
     def __init__( self, name, materialName, flags=0xFFFF, group=None, 
             lodIndex=0xFF, vertexFlags=None, vertexStride=None, renderFlags=67, 
@@ -607,9 +605,8 @@ class imPrimitive(object):
         self.index = index if index != None else sys.maxsize
 
     def getMaxUsedBoneCount( self ):
-        '''
-        Get the max. number of used bones in the primitive
-        '''
+        # Get the max number of used bones in the primitive
+        
         totalMaxUsedBoneCount = 0
         if self.isSkinned():
             for w in self.weights:
@@ -982,7 +979,6 @@ class imTag:
             yield tag, value
         
 class imModel:
-    '''Intermediate model data'''
 
     def __init__( self, primitives=None, joints=None, materials=None, groups=None,
         center=None, radius=None, min=None, max=None, 
