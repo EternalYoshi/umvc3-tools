@@ -322,9 +322,6 @@ class ModelExporterBase(ABC):
             return False
         return True
 
-    # The importer multiplies every bone matrix by this on the way in to point the
-    # tail somewhere Blender is happy with. It has to come back off on the way out or
-    # every bone is rotated 90 degrees about Z.
     BONE_TAIL_FIX = mathutils.Matrix((
         (0.0,  1.0, 0.0, 0.0),
         (-1.0, 0.0, 0.0, 0.0),
@@ -333,15 +330,10 @@ class ModelExporterBase(ABC):
     ))
 
     def getBoneWorldMtx( self, boneNode: EditorNodeProxy ):
-        # matrix_local is armature space, which is the space the importer built the
-        # bone in. Strip the tail fix and hand it back in NCL form.
         mtx = boneNode.node.matrix_local.copy() @ self.BONE_TAIL_FIX.inverted()
         return self.convertMatrixToNclMat44( mtx )
 
     def getImportSpaceInverse( self ):
-        # The importer applies Y_TO_Z_UP then bakes the scale, so undoing it is
-        # inverse(scale) * Z_TO_Y_UP. transformMtx on this side is Z_TO_Y_UP * scale,
-        # which is only the inverse when scale is 1, so build it properly.
         return self.transformMtx
 
     # Appropriated some of this code from the RE5 Albam project.
@@ -910,11 +902,6 @@ class ModelExporterBase(ABC):
             
         self.transformMtxNoScale = deepcopy( self.transformMtx )
 
-        # Scale has to divide out here, not multiply. The importer maps mod space into
-        # blender with Y_TO_Z_UP * scale, so the way back is inverse(scale) * Z_TO_Y_UP.
-        # Multiplying meant a round trip at scale 2 came back 4x, and it disagreed with
-        # the bone path, which already divides, so the mesh tore off the skeleton at any
-        # scale other than 1.
         scale = self.config.exportScale if self.config.exportScale else 1.0
         self.scaleMtx = nclScale( 1.0 / scale )
         self.transformMtx = self.scaleMtx * self.transformMtx
