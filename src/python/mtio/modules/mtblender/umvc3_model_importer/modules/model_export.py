@@ -29,6 +29,43 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
+def syncExportConfigFromScene( config, mip ):
+    # The panel writes to scene properties but the exporter reads plugin.config,
+    # which gets loaded from a yml in %APPDATA% and was never updated from the UI.
+    # Every checkbox on the export panel was doing nothing without this.
+    config.flipUpAxis              = mip.export_flip_up_axis
+    #config.lukasCompat             = mip.export_compatwithlukasscript
+
+    config.exportFilePath          = mip.export_modelpath
+    config.exportRoot              = mip.extracted_archive_directory
+
+    config.exportWeights           = mip.export_weights
+    config.exportNormals           = mip.export_normals
+    config.exportGroups            = mip.export_groups
+    config.exportSkeleton          = mip.export_skeleton
+    config.exportPrimitives        = mip.export_meshes
+
+    config.exportScale             = mip.export_model_scale
+    config.exportBakeScale         = mip.export_bake_scale
+    config.exportTexturesToTex     = mip.convert_tex_to_tex
+    config.exportOverwriteTextures = mip.export_overwrite_textures
+    config.exportGroupPerMesh      = mip.export_group_per_mesh
+    config.exportGenerateEnvelopes = mip.generate_envelopes
+
+    config.exportGenerateMrl       = mip.generate_mrl
+    config.exportExistingMrlYml    = mip.use_existing_mrl
+    config.exportMrlYmlPath        = mip.existing_mrl_yml
+
+    config.exportMetadataPath      = mip.export_metadata_file if mip.export_withmetadata else ''
+    config.exportRefPath           = mip.export_reference_model_file if mip.export_use_reference_model else ''
+
+    # the ref toggles only mean anything when there is a ref to pull from
+    useRef = mip.export_use_reference_model and mip.export_reference_model_file != ''
+    config.exportUseRefJoints      = useRef
+    config.exportUseRefEnvelopes   = useRef
+    config.exportUseRefBounds      = useRef
+    config.exportUseRefGroups      = useRef
+
 class SUB_PT_Model_Export(Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'    
@@ -74,8 +111,8 @@ class SUB_PT_Model_Export(Panel):
             row = layout.row(align=True)
             row.prop(mip, 'export_flip_up_axis',text='Flip Up Axis')
             row = layout.row(align=True)
-            row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')        
-            row = layout.row() 
+            # row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')        
+            # row = layout.row() 
 
             layout.separator()
             row = layout.row(align=True)
@@ -211,69 +248,76 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
 
     def execute(self, context):
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
-        print("Variable Check!\n")
-        print("Model Chosen: ", mip.export_modelpath)
-        print("Chosen Archive Directory: ", mip.extracted_archive_directory)
 
-        if mip.export_use_reference_model == True:
-            print("\n Reference Model to be used: ", mip.export_reference_model_file)
-        else:
-            print("No Reference Model to be used")
+        # This body used to sit inline while the dispatch below still called
+        # _execute(), so an export would run fine and then die on a NameError.
+        def _execute():
+            print("Variable Check!\n")
+            print("Model Chosen: ", mip.export_modelpath)
+            print("Chosen Archive Directory: ", mip.extracted_archive_directory)
 
-        if mip.export_withmetadata == True:
-            print("\n Metadata is to be used: ", mip.export_metadata_file)
-        else:
-            print("No Metadata to be used")
-
-        if mip.existing_mrl_yml == True:
-            print("\n MRL YML File to be used: ", mip.existing_mrl_yml)
-        else:
-            print("Material will be generated from Blender")
-
-        print("==========Import Filters==========")
-        print(mip.export_weights)
-        print(mip.export_normals)
-        print(mip.export_groups)
-        print(mip.export_skeleton)
-        print(mip.export_meshes)
-
-        print("==========Additional Options==========")
-
-        print("Model Scale: ",str(mip.export_model_scale))
-        print("Flip Up Axis = ",mip.export_flip_up_axis)
-        print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
-        print("Bake Scale Into Translation = ",mip.export_bake_scale)
-        print("Convert Textures to Tex = ",mip.convert_tex_to_tex)
-        print("Overwrite Existing Textures = ",mip.export_overwrite_textures)
-        print("Export Group Per Mesh = ",mip.export_group_per_mesh)
-        print("Generate Envelopes = ",mip.generate_envelopes)
-
-        newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.export_modelpath).split('.')[0] )
-        print("Path Test:\n", newMetadataPath)
-
-        if '' == mip.export_modelpath:
-            #mip.popupint = 0
-            ShowMessageBox("You need to choose a model file before anything can be exported.", "Notice")
-            print("You need to choose a model file before anything can be exported.")
-        else:
-            print("This is where the model importing begins.\n")
-
-            #Below code adapted from TGE's MOD_OT_export function. 
-            from .blender_plugin import plugin
-            from .blender_exporter import BlenderModelExporter
-            from ..mtlib import target
-
-            plugin.logger.clear()
-            plugin.config.save()
-            plugin.config.dump()
-            target.setTarget( target.supported[plugin.config.target].name )
-
-            exporter = BlenderModelExporter()
-            exporter.exportModel( mip.export_modelpath, context )
-            if plugin.logger.hasError():
-                self.report( {'ERROR'}, "Export completed with one or more errors." )
+            if mip.export_use_reference_model == True:
+                print("\n Reference Model to be used: ", mip.export_reference_model_file)
             else:
-                self.report( {'INFO'}, 'Export completed successfully' )
+                print("No Reference Model to be used")
+
+            if mip.export_withmetadata == True:
+                print("\n Metadata is to be used: ", mip.export_metadata_file)
+            else:
+                print("No Metadata to be used")
+
+            if mip.existing_mrl_yml == True:
+                print("\n MRL YML File to be used: ", mip.existing_mrl_yml)
+            else:
+                print("Material will be generated from Blender")
+
+            print("==========Import Filters==========")
+            print(mip.export_weights)
+            print(mip.export_normals)
+            print(mip.export_groups)
+            print(mip.export_skeleton)
+            print(mip.export_meshes)
+
+            print("==========Additional Options==========")
+
+            print("Model Scale: ",str(mip.export_model_scale))
+            print("Flip Up Axis = ",mip.export_flip_up_axis)
+            # print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
+            print("Bake Scale Into Translation = ",mip.export_bake_scale)
+            print("Convert Textures to Tex = ",mip.convert_tex_to_tex)
+            print("Overwrite Existing Textures = ",mip.export_overwrite_textures)
+            print("Export Group Per Mesh = ",mip.export_group_per_mesh)
+            print("Generate Envelopes = ",mip.generate_envelopes)
+
+            newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.export_modelpath).split('.')[0] )
+            print("Path Test:\n", newMetadataPath)
+
+            if '' == mip.export_modelpath:
+                #mip.popupint = 0
+                ShowMessageBox("You need to choose a model file before anything can be exported.", "Notice")
+                print("You need to choose a model file before anything can be exported.")
+            else:
+                print("This is where the model importing begins.\n")
+
+                #Below code adapted from TGE's MOD_OT_export function. 
+                from .blender_plugin import plugin
+                from .blender_exporter import BlenderModelExporter
+                from ..mtlib import target
+
+                plugin.logger.clear()
+                syncExportConfigFromScene( plugin.config, mip )
+                plugin.config.save()
+                plugin.config.dump()
+                target.setTarget( target.supported[plugin.config.target].name )
+
+                exporter = BlenderModelExporter()
+                exporter.exportModel( mip.export_modelpath, context )
+                if plugin.logger.hasError():
+                    self.report( {'ERROR'}, "Export completed with one or more errors." )
+                else:
+                    self.report( {'INFO'}, 'Export completed successfully' )
+
+        from .blender_plugin import plugin
         if plugin.isDebugEnv():
             _execute()
         else:
@@ -284,4 +328,4 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
                 ShowMessageBox("A fatal error occured during export.\n")
                 ShowMessageBox(str(e.args))
 
-        return {'FINISHED'}    
+        return {'FINISHED'}

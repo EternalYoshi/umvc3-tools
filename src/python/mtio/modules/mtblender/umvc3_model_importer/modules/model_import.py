@@ -89,8 +89,8 @@ class SUB_PT_Model_Import(Panel):
         row = layout.row(align=True)
         row.prop(mip, 'flip_up_axis',text='Flip Up Axis')
 
-        row = layout.row(align=True)
-        row.prop(mip, 'import_compatwithlukasscript',text='Compatibility With Lukas Script')
+        # row = layout.row(align=True)
+        # row.prop(mip, 'import_compatwithlukasscript',text='Compatibility With Lukas Script')
 
         row = layout.row(align=True)
         row.prop(mip, 'bake_scale',text='Bake Scale Into Translation')
@@ -202,7 +202,7 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Model Scale: ",str(mip.model_scale))
 
         print("Flip Up Axis = ",mip.flip_up_axis)
-        print("Importing in the style of the old Maxscript = ",mip.import_compatwithlukasscript)
+        # print("Importing in the style of the old Maxscript = ",mip.import_compatwithlukasscript)
         print("Bake Scale Into Translation = ",mip.bake_scale)
         print("Convert Textures to DDS = ",mip.convert_tex_to_dds)
         print("Convert MRL(Material) to YML = ",mip.convert_mrl_to_yml)

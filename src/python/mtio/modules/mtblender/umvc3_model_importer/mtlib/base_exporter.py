@@ -308,8 +308,8 @@ class ModelExporterBase(ABC):
             return False
         if node.isHidden():
             return False
-        if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
-            return False
+        # if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
+        #     return False
         return True
 
     def shouldExportBoneNode( self, node: EditorNodeProxy ):
@@ -318,8 +318,8 @@ class ModelExporterBase(ABC):
             return False
         if node.isBoneHidden():
             return False
-        if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
-            return False
+        # if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
+        #     return False
         return True
 
     BONE_TAIL_FIX = mathutils.Matrix((

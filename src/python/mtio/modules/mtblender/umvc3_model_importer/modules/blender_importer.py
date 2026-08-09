@@ -399,8 +399,8 @@ class BlenderModelImporter(ModelImporterBase):
     def setSkeletonAttributes( self, rootBone ):
         assertBlenderMode('OBJECT')
 
-        if self.config.lukasCompat and rootBone is not None:
-            self.setUserProp( rootBone, 'LMTBone', 255 )
+        # if self.config.lukasCompat and rootBone is not None:
+        #     self.setUserProp( rootBone, 'LMTBone', 255 )
 
         for i, joint in enumerate( self.model.joints ):
             editorBone = self.editorBoneArray[ i ]
