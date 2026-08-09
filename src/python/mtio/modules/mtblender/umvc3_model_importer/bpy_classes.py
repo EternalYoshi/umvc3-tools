@@ -29,6 +29,7 @@ classes = [
     modules.model_utils.SUB_PT_OT_ADD_REMOVE_MT_STUFF,
     modules.model_utils.SUB_OP_ADD_MT_ATTRIBUTES,
     modules.model_utils.SUB_OP_REMOVE_MT_ATTRIBUTES,  
+    modules.model_utils.SUB_OP_CLEANUP_VERTEX_GROUPS,
     mtlib.properties.UMVC3ModelImportProperties
     
 ]

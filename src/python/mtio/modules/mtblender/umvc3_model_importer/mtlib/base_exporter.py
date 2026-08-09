@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import os
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List
 from copy import deepcopy
@@ -20,6 +21,16 @@ def _tryParseInt(input, base=10, default=None):
     except Exception:
         return default
     
+def _tryParseEnvelopes(raw):
+    # The importer stashes each primitive's envelopes as json on the node.
+    if raw is None or raw == '':
+        return None
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        return parsed if isinstance(parsed, list) and len(parsed) > 0 else None
+    except Exception:
+        return None
+
 def _tryParseFloat(input, default=None):
     try:
         return float(str(input).strip())
@@ -45,8 +56,17 @@ class PrimitiveCustomAttributeData:
     field2c: int
     envelopeCount: int
     envelopeIndex: int
+    envelopes: list
     index: int
     vertexShader: str
+
+@dataclass(frozen=False,init=False)
+class MaterialCustomAttributeData:
+    type: str
+    depthStencilState: str
+    rasterizerState: str
+    cmdListFlags: int
+    matFlags: int
 
 @dataclass(frozen=False,init=False)
 class JointCustomAttributeData:
@@ -64,7 +84,7 @@ class ModelExporterBase(ABC):
     MAX_VERTEX_COUNT = 26758
     MAX_INDEX_COUNT = 63762
 
-    '''Model scene exporter interface'''
+    # Model scene exporter interface
 
     def __init__( self, plugin: EditorPluginBase ):
         self.plugin: EditorPluginBase = plugin
@@ -109,6 +129,10 @@ class ModelExporterBase(ABC):
         pass
 
     @abstractmethod
+    def getEditorMaterialCustomAttributeData( self, material ) -> EditorCustomAttributeSetProxy:
+        pass
+
+    @abstractmethod
     def convertPoint3ToNclVec3( self, v: Any ) -> NclVec3:
         pass
 
@@ -145,8 +169,9 @@ class ModelExporterBase(ABC):
             data.field04 = _tryParseInt(attribs.field04)
             data.field08 = _tryParseInt(attribs.field08)
             data.field0c = _tryParseInt(attribs.field0c)
-            data.bsphere = NclVec4(attribs.bsphere[0], attribs.bsphere[1], attribs.bsphere[2], attribs.bsphere[3])
-            data.index = _tryParseInt(getattr(attribs, 'index', None))
+            bsphere = attribs.bsphere
+            data.bsphere = NclVec4(bsphere[0], bsphere[1], bsphere[2], bsphere[3]) if bsphere != None else None
+            data.index = _tryParseInt(attribs.index)
         else:
             data.id = None
             data.field04 = None
@@ -160,9 +185,9 @@ class ModelExporterBase(ABC):
         data = PrimitiveCustomAttributeData()
         attribs = self.getEditorPrimitiveCustomAttributeData( node )
         if attribs != None:
-            version = _tryParseInt(getattr(attribs, '_version', 1))
+            version = _tryParseInt(attribs._version, default=1)
             data.flags = _tryParseInt(attribs.flags, base=0)
-            if attribs.groupId == "inherit":
+            if attribs.groupId == "inherit" or attribs.groupId == None:
                 if node.getParent() != None:
                     data.groupId = self.getGroupCustomAttributeData(node.getParent()).id
                 else:
@@ -174,13 +199,14 @@ class ModelExporterBase(ABC):
             data.renderFlags = _tryParseInt(attribs.renderFlags, base=0)
             data.id = _tryParseInt(attribs.id)
             data.field2c = _tryParseInt(attribs.field2c)
-            if version == 1:
-                data.envelopeCount = _tryParseInt(getattr(attribs, 'primitiveJointLinkCount', None))
-                data.envelopeIndex = _tryParseInt(getattr(attribs, 'primitiveJointLinkIndex', None))
+            if version == 1 and attribs.envelopeCount == None:
+                data.envelopeCount = _tryParseInt(attribs.primitiveJointLinkCount)
+                data.envelopeIndex = _tryParseInt(attribs.primitiveJointLinkIndex)
             else:
-                data.envelopeCount = _tryParseInt(getattr(attribs, 'envelopeCount', None))
-                data.envelopeIndex = _tryParseInt(getattr(attribs, 'envelopeIndex', None))
-            data.index = _tryParseInt(getattr(attribs, 'index', None))
+                data.envelopeCount = _tryParseInt(attribs.envelopeCount)
+                data.envelopeIndex = _tryParseInt(attribs.envelopeIndex)
+            data.index = _tryParseInt(attribs.index)
+            data.envelopes = _tryParseEnvelopes(attribs.envelopes)
             data.vertexShader = attribs.shaderName
         else:
             data.flags = None
@@ -191,6 +217,7 @@ class ModelExporterBase(ABC):
             data.field2c = None
             data.envelopeCount = None
             data.envelopeIndex = None
+            data.envelopes = None
             data.index = None
             data.vertexShader = None
             
@@ -206,9 +233,11 @@ class ModelExporterBase(ABC):
             #version = _tryParseInt(getattr(attribs, '_version', 1))
             # grab attributes from custom attributes on node
             data.id = _tryParseInt(attribs.id)
-            data.symmetryNode = self.plugin.getNodeByName( attribs.symmetryName )
-            # auto detect if symmetry node is not found and symmetry name is set to 'auto'
-            if data.symmetryNode == None and attribs.symmetryName == "auto":
+            symmetryName = attribs.symmetryName
+            data.symmetryNode = self.plugin.getNodeByName( symmetryName ) if symmetryName else None
+            # auto detect if symmetry node is not found, or the name is set to 'auto',
+            # or there was never a symmetry name on the bone to begin with
+            if data.symmetryNode == None and symmetryName in ( "auto", None ):
                 data.symmetryNode = self.detectSymmetryNode( node.getName() )
             data.field03 = _tryParseInt(attribs.field03)
             data.field04 = _tryParseFloat(attribs.field04)
@@ -216,7 +245,9 @@ class ModelExporterBase(ABC):
             data.offsetX = _tryParseFloat(attribs.offsetX)
             data.offsetY = _tryParseFloat(attribs.offsetY)
             data.offsetZ = _tryParseFloat(attribs.offsetZ)
-            data.index = _tryParseInt(getattr(attribs, 'index', None))
+            data.index = _tryParseInt(attribs.index)
+            if data.id == None and jointMeta != None:
+                data.id = jointMeta.id
         else:
             if jointMeta != None:
                 data.id = jointMeta.id
@@ -233,6 +264,35 @@ class ModelExporterBase(ABC):
             data.index = None
         return data
             
+    def getMaterialCustomAttributeData( self, material ) -> MaterialCustomAttributeData:
+        # Read back the MT material state the importer stashed on the editor material.
+        data = MaterialCustomAttributeData()
+        data.type = None
+        data.depthStencilState = None
+        data.rasterizerState = None
+        data.cmdListFlags = None
+        data.matFlags = None
+
+        attribs = self.getEditorMaterialCustomAttributeData( material )
+        if attribs != None:
+            data.type = attribs.type
+            data.depthStencilState = attribs.depthStencilState
+            data.rasterizerState = attribs.rasterizerState
+            data.cmdListFlags = _tryParseInt(attribs.cmdListFlags, base=0)
+            data.matFlags = _tryParseInt(attribs.matFlags, base=0)
+        return data
+
+    def applyMaterialCustomAttributeData( self, materialInstance, data: MaterialCustomAttributeData ):
+        # Overlay the preserved state onto a freshly built material instance.
+        if materialInstance == None or data == None:
+            return materialInstance
+        if data.type != None: materialInstance.type = data.type
+        if data.depthStencilState != None: materialInstance.depthStencilState = data.depthStencilState
+        if data.rasterizerState != None: materialInstance.rasterizerState = data.rasterizerState
+        if data.cmdListFlags != None: materialInstance.cmdListFlags = data.cmdListFlags
+        if data.matFlags != None: materialInstance.matFlags = data.matFlags
+        return materialInstance
+
     def detectSymmetryNode( self, name: str ):
         return self.plugin.getNodeByName( util.replaceSuffix( name, "_l", "_r" ) ) if name.endswith("_l") else \
                self.plugin.getNodeByName( util.replaceSuffix( name, "_r", "_l" ) ) if name.endswith("_r") else \
@@ -243,7 +303,9 @@ class ModelExporterBase(ABC):
                None
 
     def shouldExportNode( self, node: EditorNodeProxy ):
-        '''Returns if the node should be included in the export'''
+        # Returns if the node should be included in the export
+        if node is None:
+            return False
         if node.isHidden():
             return False
         if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
@@ -251,95 +313,59 @@ class ModelExporterBase(ABC):
         return True
 
     def shouldExportBoneNode( self, node: EditorNodeProxy ):
-        '''Returns if the node should be included in the export'''
+        # Returns if the node should be included in the export
+        if node is None:
+            return False
         if node.isBoneHidden():
             return False
         if self.config.lukasCompat and (node.isBoneNode() and node.getName() == 'bone255'):
             return False
         return True
 
+    BONE_TAIL_FIX = mathutils.Matrix((
+        (0.0,  1.0, 0.0, 0.0),
+        (-1.0, 0.0, 0.0, 0.0),
+        (0.0,  0.0, 1.0, 0.0),
+        (0.0,  0.0, 0.0, 1.0),
+    ))
+
+    def getBoneWorldMtx( self, boneNode: EditorNodeProxy ):
+        mtx = boneNode.node.matrix_local.copy() @ self.BONE_TAIL_FIX.inverted()
+        return self.convertMatrixToNclMat44( mtx )
+
+    def getImportSpaceInverse( self ):
+        return self.transformMtx
+
+    # Appropriated some of this code from the RE5 Albam project.
     def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
-        
-        worldMtx = node.node.matrix_local.copy()
-        if node.node.parent is None or node.getParent() is None:
-             parentWorldMtx = nclCreateMat44()
-        elif self.shouldExportBoneNode( node.getParent() ):
-            parentWorldMtx = node.getParent().getTransform()
-        #parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportBoneNode( node.getParent() ) else nclCreateMat44()
-        
-        #So this is how to get the Mt Attributes...?
-        Filler = None
-        attribs = self.getJointCustomAttributeData( node, Filler )
+        worldMtx = self.getBoneWorldMtx( node )
 
-        arm = bpy.context.object
-        #bpy.ops.object.mode_set(mode='EDIT')
-        #pose_bones = arm.data.pose.bones
-        #PMbone = pose_bones[node.node.name]
-
-        #Going to get both the current Bone's ID and the parent bone's ID.
-        CurrentID = attribs.id
-
-        #Reversing tail direction fix.
-        tailRotationMatrix = mathutils.Matrix((
-            (0.0,  1.0, 0.0, 0.0),
-            (-1.0, 0.0, 0.0, 0.0),
-            (0.0,  0.0, 1.0, 0.0),
-            (0.0,  0.0, 0.0, 1.0),
-        ))
-        worldMtx = worldMtx @ tailRotationMatrix.inverted()
-
-        #Reverting the matrix format from Blender to NCL.
-        worldMtx = self.convertMatrixToNclMat44(worldMtx)
-
-
-        #Does this bone even have a parent bone?
-        if(node.node.parent):
-            ParentID = arm.pose.bones[node.node.parent.name]["id"]
-        else:    
-            ParentID = 255
-
-        #Need to take care of the parenting related operations first.
-        if node.getParent() is not None and ParentID != 255:
-            editorParentBone = node.getParent()
-            parentTransform = node.node.parent.matrix_local.copy()
-
-            worldMtx_mat = self.convertNclMat44ToMatrix(worldMtx)
-            parent_mat = self.convertNclMat44ToMatrix(parentTransform)
-
-            world_mat =  worldMtx_mat @ parent_mat.inverted()
-            worldMtx = self.convertMatrixToNclMat44(world_mat)
-
-
-
-        # if node.node.parent is not None:
-        #     PARENTattribs = self.getJointCustomAttributeData( node.node.parent, Filler )
-        #     lMtx = worldMtx
-        #     ParentID = PARENTattribs.id
-
-        localMtx = worldMtx
-        #localMtx = worldMtx
-
-        if node.node.parent is None or node.getParent() is None:
-            # Safe copy whether it's a glm.mat4x4 or mathutils.Matrix
-            if hasattr(self.transformMtxNoScale, "copy"):
-                tmat = self.transformMtxNoScale.copy()
+        parentNode = node.getParent() if node.node.parent is not None else None
+        if parentNode is not None and self.shouldExportBoneNode( parentNode ):
+            # both sides have to have the tail fix removed before they're comparable,
+            # using the parent's raw matrix_local here leaves the fix baked into the
+            # relative transform
+            parentWorldMtx = self.getBoneWorldMtx( parentNode )
+            localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
+        else:
+            # root bone, so undo the up axis turn the importer applied to it
+            localMtx = worldMtx
+            if self.config.exportBakeScale:
+                localMtx = self.transformMtxNoScale * localMtx
             else:
-                # Convert GLM mat4x4 to mathutils.Matrix manually
-                tmat = mathutils.Matrix([list(row) for row in self.transformMtxNoScale])
-            localMtx_mat = self.convertNclMat44ToMatrix(localMtx)
-            localMtx = self.convertMatrixToNclMat44(tmat.inverted() @ localMtx_mat)
-            
-        if self.plugin.config.exportBakeScale:
-            inv_scale = 1.0 / self.plugin.config.exportScale
-            localMtx[3] = self.nclVec4Multiply(localMtx[3], (inv_scale, inv_scale, inv_scale, 1.0))
+                localMtx = self.getImportSpaceInverse() * localMtx
 
-        # A hopefully failure proof way to convert the matrix to a Ncl Matrix.
-        if not isinstance(localMtx, NclMat44):
-            try:
-                localMtx = NclMat44(localMtx)
-            except Exception:
-                localMtx = NclMat44([list(row) for row in localMtx])
+        if self.config.exportBakeScale:
+            # importer did localMtx[3] *= scale, so take it back out of the translation
+            scale = self.config.exportScale if self.config.exportScale else 1.0
+            invScale = 1.0 / scale
+            localMtx[3] = NclVec4( localMtx[3][0] * invScale,
+                                   localMtx[3][1] * invScale,
+                                   localMtx[3][2] * invScale,
+                                   localMtx[3][3] )
 
+        if not isinstance( localMtx, NclMat44 ):
+            localMtx = NclMat44( [ list( row ) for row in localMtx ] )
         return localMtx
 
     # def getNodeBoneLocalMtx( self, mip, node: EditorNodeProxy ) -> Any:
@@ -364,7 +390,9 @@ class ModelExporterBase(ABC):
         parentWorldMtx = node.getParent().getTransform() if node.getParent() is not None and self.shouldExportNode( node.getParent() ) else nclCreateMat44()
         localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
         if self.plugin.config.exportBakeScale:
-            localMtx[3] *= NclVec4((self.plugin.config.exportScale, self.plugin.config.exportScale, self.plugin.config.exportScale, 1))
+            scale = self.plugin.config.exportScale if self.plugin.config.exportScale else 1.0
+            invScale = 1.0 / scale
+            localMtx[3] *= NclVec4((invScale, invScale, invScale, 1))
             if node.getParent() is None or not self.shouldExportNode(node.getParent()):
                 localMtx = self.transformMtxNoScale * localMtx
         else:
@@ -393,7 +421,9 @@ class ModelExporterBase(ABC):
     def getNodeWorldMtx( self, node: EditorNodeProxy ) -> Any:
         worldMtx = node.getTransform() 
         if self.config.exportBakeScale:
-            worldMtx[3] *= NclVec4((self.config.exportScale, self.config.exportScale, self.config.exportScale, 1))
+            scale = self.config.exportScale if self.config.exportScale else 1.0
+            invScale = 1.0 / scale
+            worldMtx[3] *= NclVec4((invScale, invScale, invScale, 1))
         return worldMtx
 
     def processBone( self, mip, editorNode: EditorNodeProxy ): 
@@ -430,7 +460,10 @@ class ModelExporterBase(ABC):
         self.jointToEditorNodeMap[joint] = editorNode
         self.model.joints.append( joint )
         self.jointIdxByName[ joint.name ] = len( self.model.joints ) - 1
-        
+        # without this every recursive parent/symmetry lookup resolves to None and
+        # the exported skeleton comes out completely flat
+        return joint
+
     def iterBoneNodes( self ):
 
         #process all bones in the scene(TGE's Original Code)
@@ -472,7 +505,7 @@ class ModelExporterBase(ABC):
 
         #     yield editorNode
 
-        # # process all bones in the scene(Previous Fixing Attempt)
+        # process all bones in the scene(Previous Fixing Attempt)
         # for editorNode in self.getObjects():
         #     #Gotta get the Armature to get the bones first.
         #     if editorNode.node.type == 'ARMATURE':
@@ -522,8 +555,25 @@ class ModelExporterBase(ABC):
                 refJoint = self.ref.joints[i]
                 joint.symmetry = self.model.joints[refJoint.symmetryIndex] if refJoint.symmetryIndex != 255 else None
         else:
+            # process all bones in the scene
+            boneNodes = list(self.iterBoneNodes())
+            for i, editorNode in enumerate( boneNodes ):
+                self.updateProgress( 'Processing bones', i, len(boneNodes) )
+                self.processBone( mip, editorNode )
+                self.processedNodes.add( editorNode )
 
-            
+            # resolve symmetry references once every joint exists, otherwise forward
+            # references to bones we haven't walked yet come back as None
+            for joint in list( self.model.joints ):
+                editorNode = self.jointToEditorNodeMap.get( joint )
+                if editorNode is None:
+                    continue
+                jointMeta = self.metadata.getJointByName( editorNode.getName() )
+                attribs = self.getJointCustomAttributeData( editorNode, jointMeta )
+                if attribs.symmetryNode != None:
+                    joint.symmetry = self.processBone( mip, attribs.symmetryNode )
+                else:
+                    joint.symmetry = None
 
             #Old Code.
             # # process all bones in the scene
@@ -607,11 +657,19 @@ class ModelExporterBase(ABC):
             return material.getName()
             
     def iterMeshNodes( self ):
+        #Tweaked to only care about meshes in the same collection as the selected Armature.
+        ChosenArmature = bpy.context.view_layer.objects.active
+        armatureCollections = set(ChosenArmature.users_collection)
+
         for editorNode in self.getObjects():
             if not self.shouldExportNode( editorNode ):
                 continue
             
             if not editorNode.isMeshNode() and not editorNode.isSplineNode():
+                continue
+
+            MeshNode = editorNode.node
+            if not armatureCollections.intersection(MeshNode.users_collection):
                 continue
             
             yield editorNode
@@ -647,6 +705,12 @@ class ModelExporterBase(ABC):
                     # add envelopes from ref to the primitive
                     for i in range(attribs.envelopeIndex, attribs.envelopeIndex+attribs.envelopeCount):
                         prim.envelopes.append(self.refEnvelopes[i])
+                elif attribs.envelopes != None:
+                    # no reference model, but the importer left the originals on the node
+                    for j, envData in enumerate( attribs.envelopes ):
+                        env = self.buildEnvelopeFromData( envData, j )
+                        if env != None:
+                            prim.envelopes.append( env )
                 elif self.config.exportGenerateEnvelopes:
                     # TODO local transform/pivot, link to joint(s)
                     prim.envelopes.append(imEnvelope())
@@ -660,17 +724,53 @@ class ModelExporterBase(ABC):
                 self.logger.debug( "trimming uvs" )
                 prim.removeUnusedUvs( self.progressCallback )
                                 
+                self.logger.debug( "optimizing mesh" )
+                prim.makeIndexed( self.progressCallback )
+
+                # Tangents have to come after indexing. Generated before, every triangle
+                # corner is still its own vertex, so each one gets a flat per face tangent
+                # and no two corners agree, which stops makeIndexed merging anything. Ryu
+                # went from 30k vertices to 99k. Doing it here accumulates across shared
+                # vertices, which is both smooth and what retail stores.
                 if prim.hasUvs():
                     self.logger.debug( "generating tangents" )
                     prim.generateTangents( self.progressCallback )
-                
-                self.logger.debug( "optimizing mesh" )
-                prim.makeIndexed( self.progressCallback )
                 if target.current.useTriStrips:
                     prim.generateTriStrips( self.progressCallback )
                 
                 self.model.primitives.append( prim )
         
+    def buildEnvelopeFromData( self, data, index ):
+        # Rebuild an imEnvelope from what the importer stashed on the node.
+        try:
+            joint = None
+            jointId = data.get('jointId')
+            if jointId != None:
+                joint = self.model.getJointById( jointId )
+            mtx = data.get('localMtx')
+            localMtx = nclCreateMat44((
+                NclVec4(( mtx[0],  mtx[1],  mtx[2],  mtx[3]  )),
+                NclVec4(( mtx[4],  mtx[5],  mtx[6],  mtx[7]  )),
+                NclVec4(( mtx[8],  mtx[9],  mtx[10], mtx[11] )),
+                NclVec4(( mtx[12], mtx[13], mtx[14], mtx[15] )),
+            )) if mtx != None and len(mtx) == 16 else None
+            return imEnvelope(
+                name='env_'+str(index),
+                joint=joint,
+                field04=data.get('field04', 0),
+                field08=data.get('field08', 0),
+                field0c=data.get('field0c', 0),
+                boundingSphere=NclVec4(tuple(data['bsphere'])) if data.get('bsphere') else None,
+                min=NclVec4(tuple(data['min'])) if data.get('min') else None,
+                max=NclVec4(tuple(data['max'])) if data.get('max') else None,
+                localMtx=localMtx,
+                field80=NclVec4(tuple(data['field80'])) if data.get('field80') else None,
+                index=index,
+            )
+        except Exception as e:
+            self.logger.warning( 'could not rebuild a stored envelope: ' + str(e) )
+            return None
+
     def processMeshes( self, mip ):
         if not self.config.exportPrimitives:
             self.logger.info('exporting meshes skipped because it has been disabled through the config')
@@ -681,24 +781,28 @@ class ModelExporterBase(ABC):
         meshNodes = list(self.iterMeshNodes())
         for i, editorNode in enumerate( meshNodes ):
             self.updateProgress('Processing meshes', i, len( meshNodes ) )
+            # processMesh builds the working sets and hands them to generatePrimitives,
+            # which is what actually appends imPrimitives to the model. Appending the
+            # editor node here instead put proxies into model.primitives and toBinaryModel
+            # had no chance.
             self.processMesh( editorNode )
-
-            #Going to add the group reference to this node.
-            obj = bpy.data.objects.get(editorNode.node.name)
-            if obj.parent:
-                editorNode.group = obj
-            else:
-                editorNode.group = None
-            #editorNode.group = group
-
             self.processedNodes.add( editorNode )
-            self.model.primitives.append(editorNode)
             
     def iterGroupNodes( self ):
         # process all groups in the scene
+
+        #Let's get the Armature first, to get what collection it resides in and limit ourselves to only group nodes that reside in there.
+        ChosenArmature = bpy.context.view_layer.objects.active
+        armatureCollections = set(ChosenArmature.users_collection)
+
         for editorNode in self.getObjects():
             if not self.shouldExportNode( editorNode ) or not editorNode.isGroupNode():
                 continue
+
+            GroupNode = editorNode.node
+            if not armatureCollections.intersection(GroupNode.users_collection):
+                continue
+
             yield editorNode
 
     def processGroups( self, mip ):
@@ -814,9 +918,11 @@ class ModelExporterBase(ABC):
         if self.config.flipUpAxis:
             self.transformMtx *= util.Z_TO_Y_UP_MATRIX
             
-        self.scaleMtx = nclScale( self.config.exportScale )
         self.transformMtxNoScale = deepcopy( self.transformMtx )
-        self.transformMtx *= self.scaleMtx
+
+        scale = self.config.exportScale if self.config.exportScale else 1.0
+        self.scaleMtx = nclScale( 1.0 / scale )
+        self.transformMtx = self.scaleMtx * self.transformMtx
         self.transformMtxNormal = nclTranspose( nclInverse( self.transformMtx ) )
     
     def exportModel( self, path, context ):
