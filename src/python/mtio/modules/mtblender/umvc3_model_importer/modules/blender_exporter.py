@@ -219,35 +219,40 @@ class BlenderModelExporter(ModelExporterBase):
         # whatever the importer recorded off the original mrl entry
         preserved = self.getMaterialCustomAttributeData( material )
 
-        if not self.config.exportGenerateMrl or self.mrl is None:
-            return
+        # DEPRECATED: mrl generation. Everything below built the mrl entry for this
+        # material. The attribute read above is kept because it costs nothing and
+        # documents what the importer preserved.
+        return
 
-        # an existing mrl already holds the real thing, don't clobber it
-        for existing in self.mrl.materials:
-            if existing.name == name:
-                self.applyMaterialCustomAttributeData( existing, preserved )
-                return
+        # if not self.config.exportGenerateMrl or self.mrl is None:
+        # return
 
-        preset = self.config.exportMaterialPreset
-        if preserved.type != None:
-            # prefer the material type the model actually shipped with
-            candidate = preserved.type.replace( 'nDraw::', '' )
-            for template in imMaterialInfo.TEMPLATE_MATERIALS:
-                if template.replace( ' ', '' ).endswith( candidate ):
-                    preset = template
-                    break
+        # # an existing mrl already holds the real thing, don't clobber it
+        # for existing in self.mrl.materials:
+        # if existing.name == name:
+        # self.applyMaterialCustomAttributeData( existing, preserved )
+        # return
 
-        materialInstance = imMaterialInfo.createFromTemplate(
-            preset,
-            name,
-            normalMap=self._getMaterialTexturePath( material, 'Normal', imMaterialInfo.DEFAULT_NORMAL_MAP ),
-            albedoMap=self._getMaterialTexturePath( material, 'Base Color', imMaterialInfo.DEFAULT_ALBEDO_MAP ),
-            specularMap=self._getMaterialTexturePath( material, 'Specular IOR Level', imMaterialInfo.DEFAULT_SPECULAR_MAP ),
-        )
+        # preset = self.config.exportMaterialPreset
+        # if preserved.type != None:
+        # # prefer the material type the model actually shipped with
+        # candidate = preserved.type.replace( 'nDraw::', '' )
+        # for template in imMaterialInfo.TEMPLATE_MATERIALS:
+        # if template.replace( ' ', '' ).endswith( candidate ):
+        # preset = template
+        # break
 
-        self.applyMaterialCustomAttributeData( materialInstance, preserved )
-        self.copyUsedDefaultTexturesToOutput( materialInstance )
-        self.mrl.materials.append( materialInstance )
+        # materialInstance = imMaterialInfo.createFromTemplate(
+        # preset,
+        # name,
+        # normalMap=self._getMaterialTexturePath( material, 'Normal', imMaterialInfo.DEFAULT_NORMAL_MAP ),
+        # albedoMap=self._getMaterialTexturePath( material, 'Base Color', imMaterialInfo.DEFAULT_ALBEDO_MAP ),
+        # specularMap=self._getMaterialTexturePath( material, 'Specular IOR Level', imMaterialInfo.DEFAULT_SPECULAR_MAP ),
+        # )
+
+        # self.applyMaterialCustomAttributeData( materialInstance, preserved )
+        # self.copyUsedDefaultTexturesToOutput( materialInstance )
+        # self.mrl.materials.append( materialInstance )
 
     # ------------------------------------------------------------------
     # meshes

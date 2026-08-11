@@ -875,23 +875,24 @@ class ModelExporterBase(ABC):
             mrlExportPath = self.outPath.basePath + '/' + self.outPath.baseName + '.mrl'
             
         self.updateProgress( 'Writing files', 50 )
-        if self.config.exportGenerateMrl:
-            mrlYmlExportPath = mrlExportPath + ".yml"
-            self.logger.info(f"writing generated mrl yml to {mrlYmlExportPath}")
-            self.mrl.updateTextureList()
-            try:
-                self.mrl.saveYamlFile( mrlYmlExportPath )
-            except PermissionError as e:
-                raise RuntimeError( f"Unable to save mrl yml file, make sure you have write permissions to {mrlYmlExportPath}" )
+        # DEPRECATED: mrl generation
+        # if self.config.exportGenerateMrl:
+        #     mrlYmlExportPath = mrlExportPath + ".yml"
+        #     self.logger.info(f"writing generated mrl yml to {mrlYmlExportPath}")
+        #     self.mrl.updateTextureList()
+        #     try:
+        #         self.mrl.saveYamlFile( mrlYmlExportPath )
+        #     except PermissionError as e:
+        #         raise RuntimeError( f"Unable to save mrl yml file, make sure you have write permissions to {mrlYmlExportPath}" )
           
         self.updateProgress( 'Writing files', 75 )  
-        if self.config.exportGenerateMrl or (self.config.exportExistingMrlYml and self.mrl != None):
-            self.logger.info(f'exporting mrl yml to {mrlExportPath}')
-            
-            try:
-                self.mrl.saveBinaryFile( mrlExportPath )
-            except PermissionError as e:
-                raise RuntimeError( f"Unable to save mrl file, make sure you have write permissions to {mrlExportPath}" )
+        # DEPRECATED: mrl generation
+        # if self.config.exportGenerateMrl or (self.config.exportExistingMrlYml and self.mrl != None):
+        #     self.logger.info(f'exporting mrl yml to {mrlExportPath}')
+        #     try:
+        #         self.mrl.saveBinaryFile( mrlExportPath )
+        #     except PermissionError as e:
+        #         raise RuntimeError( f"Unable to save mrl file, make sure you have write permissions to {mrlExportPath}" )
             
         self.updateProgress( 'Writing files', 100 )
     
@@ -921,12 +922,16 @@ class ModelExporterBase(ABC):
         else:
             self.ref = None
         self.path = mip.export_modelpath
-        self.rootpath = mip.extracted_archive_directory
-        self.outPath = util.ResourcePath(path, rootPath=mip.extracted_archive_directory)
-        if self.outPath.relBasePath == None:
-            raise RuntimeError(
-"The model export path is not in a subfolder of the specified extracted archive directory.\n"+
-"If your extracted archive directory is C:\\Export, the model export path should start with C:\\Export.")
+        # DEPRECATED: extracted archive directory. Its only consumer was the mrl
+        # texture path prefix, and the raise below blocked exports over a value
+        # nothing reads. outPath only needs rootPath to populate relBasePath.
+        # self.rootpath = mip.extracted_archive_directory
+        self.rootpath = ''
+        self.outPath = util.ResourcePath(path)
+        # if self.outPath.relBasePath == None:
+        #     raise RuntimeError(
+        # "The model export path is not in a subfolder of the specified extracted archive directory.\n"+
+        # "If your extracted archive directory is C:\\Export, the model export path should start with C:\\Export.")
         
         self.metadata = ModelMetadata()
         self.mrl = None
@@ -945,19 +950,23 @@ class ModelExporterBase(ABC):
             self.ref = rModelData()
             self.ref.read( NclBitStream( util.loadIntoByteArray( mip.export_reference_model_file ) ) )
             
-        if os.path.exists( mip.existing_mrl_yml ):
-            self.logger.info(f'loading mrl yml from {mip.existing_mrl_yml}')
-            self.mrl = imMaterialLib()
-            self.mrl.loadYamlFile( mip.existing_mrl_yml )
-        elif self.config.exportGenerateMrl:
-            self.logger.info(f'generating new mrl')
-            self.mrl = imMaterialLib()
+        # DEPRECATED: mrl generation
+        # if os.path.exists( mip.existing_mrl_yml ):
+        #     self.logger.info(f'loading mrl yml from {mip.existing_mrl_yml}')
+        #     self.mrl = imMaterialLib()
+        #     self.mrl.loadYamlFile( mip.existing_mrl_yml )
+        # elif self.config.exportGenerateMrl:
+        #     self.logger.info(f'generating new mrl')
+        #     self.mrl = imMaterialLib()
             
         self.logger.debug('creating output directories')
-        if not os.path.exists( mip.extracted_archive_directory ):
-            os.makedirs( mip.extracted_archive_directory )
+        # DEPRECATED: don't create the extracted archive directory, that's the folder
+        # the user extracted the game into. The second call was also wrong, it made a
+        # directory named after the .mod file rather than its parent.
+        # if not os.path.exists( mip.extracted_archive_directory ):
+        #     os.makedirs( mip.extracted_archive_directory )
         if not os.path.exists( os.path.dirname( mip.export_modelpath ) ):
-            os.makedirs( mip.export_modelpath )
+            os.makedirs( os.path.dirname( mip.export_modelpath ) )
 
 
         self.logger.info('processing scene')
