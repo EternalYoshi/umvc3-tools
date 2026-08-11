@@ -169,7 +169,7 @@ class ModelImporterBase(ABC):
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:
         self.logger.debug( 'decoding faces')
         editorFaceArray = self.createArray()
-        indexStart = ( primitive.indexBufferOffset + primitive.indexStartIndex ) * 2
+        indexStart = primitive.indexBufferOffset * 2
         indexStream.setOffset( indexStart )
         if not target.current.useTriStrips:   
             for j in range( 0, primitive.indexCount, 3 ):
