@@ -57,6 +57,9 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             row.label(text="Select a primitive, joint, or group object first.")
         elif obj.type == 'ARMATURE' and context.mode != "POSE":
             row.label(text="Bones have to be selected in pose mode.")
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')
         elif obj.type == 'MESH' and context.mode != "OBJECT":
             row.label(text="Select the mesh in Object Mode.")   
         elif obj.type == 'MESH' and context.mode == "OBJECT":
@@ -77,6 +80,12 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             #Checks which pose bone is selected, if any at all.
             PoseBones = obj.pose.bones
             ChosenBone = None
+            # the cleanup operator works on every selected MESH, so it is useful while
+            # the armature is active too. it was only reachable with a mesh selected.
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')
+
             if len(bpy.context.selected_pose_bones) > 1:
                 layout.separator()
                 row = layout.row(align=True)
@@ -300,8 +309,4 @@ class SUB_OP_CLEANUP_VERTEX_GROUPS(bpy.types.Operator):
                     obj.vertex_groups.remove(vertex_group)
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
-        return {'FINISHED'}  
-
-
-
-
+        return {'FINISHED'}

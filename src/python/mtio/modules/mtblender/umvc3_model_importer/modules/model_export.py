@@ -117,8 +117,10 @@ class SUB_PT_Model_Export(Panel):
 
             row = layout.row(align=True)
             row.prop(mip, 'export_flip_up_axis',text='Flip Up Axis')
-            row = layout.row(align=True)
-            row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')        
+            # DEPRECATED: every lukasCompat code path in base_exporter, base_importer
+            # and blender_importer is commented out, so this checkbox does nothing.
+            # row = layout.row(align=True)
+            # row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')
             row = layout.row() 
 
             layout.separator()
@@ -290,7 +292,7 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
 
             print("Model Scale: ",str(mip.export_model_scale))
             print("Flip Up Axis = ",mip.export_flip_up_axis)
-            print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
+            # print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
             print("Bake Scale Into Translation = ",mip.export_bake_scale)
             print("Convert Textures to Tex = ",mip.convert_tex_to_tex)
             print("Overwrite Existing Textures = ",mip.export_overwrite_textures)
