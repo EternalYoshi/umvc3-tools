@@ -293,6 +293,41 @@ typedef struct {
 } rVertexShaderInputLayout_IANonSkinBL;
 '''
 
+'''
+/* size = 20 */
+typedef struct {
+ local int64 p = FTell();
+ FSeek( p + 0 );  /* 1 */  f32 Position[3];
+ FSeek( p + 12 ); /* 11 */ vec432 Normal[1];
+ FSeek( p + 16 ); /* 2 */  f16 TexCoord[2];   /* all four UV channels alias this */
+ FSeek( p + 20 );
+} rVertexShaderInputLayout_IANonSkinB;
+'''
+
+class imVertexIANonSkinB(imVertex):
+    # Stage geometry uses this. Without it createFromShader returned None and every such
+    # mesh was silently promoted to IANonSkinTBNLA, stride 20 to 36, with tangent and
+    # occlusion invented from nothing.
+    STRIDE = 20
+    SHADER = 'IANonSkinB'
+    MAX_WEIGHT_COUNT = 0
+    COMPRESSED = False
+
+    def __init__( self ):
+        super().__init__()
+
+    @staticmethod
+    def getFlags():
+        return 0x01
+
+    def write( self, stream ):
+        stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
+        stream.writeFloat( vertexcodec.encodeF32( self.position[1] ) )
+        stream.writeFloat( vertexcodec.encodeF32( self.position[2] ) )
+        stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
+        stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[0] ) )
+        stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[1] ) )
+
 class imVertexIANonSkinBL(imVertex):
     STRIDE = 24
     SHADER = 'IANonSkinBL'
@@ -520,6 +555,7 @@ class imVertexFormat(object):
         elif shader == imVertexIASkinTB1wt.SHADER: return imVertexFormat( imVertexIASkinTB1wt )
         elif shader == imVertexIASkinBridge1wt.SHADER: return imVertexFormat( imVertexIASkinBridge1wt )
         elif shader == imVertexIANonSkinTB.SHADER: return imVertexFormat( imVertexIANonSkinTB )
+        elif shader == imVertexIANonSkinB.SHADER: return imVertexFormat( imVertexIANonSkinB )
         elif shader == imVertexIANonSkinBL.SHADER: return imVertexFormat( imVertexIANonSkinBL )
         elif shader == imVertexIANonSkinTBNLA.SHADER: return imVertexFormat( imVertexIANonSkinTBNLA )
         else: return None

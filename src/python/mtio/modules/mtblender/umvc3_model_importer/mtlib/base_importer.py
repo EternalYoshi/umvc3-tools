@@ -293,9 +293,9 @@ class ModelImporterBase(ABC):
         self.logger.info('importing skeleton')
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         self.editorRootBone = None
-        if mip.import_compatwithlukasscript:
-            editorParentBone = None
-            self.editorRootBone = self.createBone('bone255', self.convertNclMat44ToMatrix( self.transformMtx ), None, editorParentBone, context)
+        # if mip.import_compatwithlukasscript:
+        #     editorParentBone = None
+        #     self.editorRootBone = self.createBone('bone255', self.convertNclMat44ToMatrix( self.transformMtx ), None, editorParentBone, context)
         
         self.editorBoneArray = []
         self.editorBoneLookup = dict()
@@ -304,18 +304,18 @@ class ModelImporterBase(ABC):
             
             localMtx = self.model.jointLocalMtx[i]
             
-            if not mip.import_compatwithlukasscript:
-                if mip.bake_scale:
-                    # transform position by scale
-                    localMtx = copy.deepcopy(localMtx)
-                    localMtx[3] *= NclVec4((mip.model_scale, mip.model_scale, mip.model_scale, 1))
-                    if joint.parentIndex == 255:
-                        # flip up axis if necessary
-                        localMtx = self.transformMtxNoScale * localMtx
-                else:        
-                    if joint.parentIndex == 255:
-                        # only transform root
-                        localMtx = self.transformMtx * localMtx         
+            # if not mip.import_compatwithlukasscript:
+            if mip.bake_scale:
+                # transform position by scale
+                localMtx = copy.deepcopy(localMtx)
+                localMtx[3] *= NclVec4((mip.model_scale, mip.model_scale, mip.model_scale, 1))
+                if joint.parentIndex == 255:
+                    # flip up axis if necessary
+                    localMtx = self.transformMtxNoScale * localMtx
+            else:        
+                if joint.parentIndex == 255:
+                    # only transform root
+                    localMtx = self.transformMtx * localMtx         
 
             worldMtx = localMtx
             jointName = self.metadata.getJointName( joint.id )           
@@ -333,8 +333,8 @@ class ModelImporterBase(ABC):
 
     def fixupSkeleton( self, context ):
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
-        if mip.import_compatwithlukasscript and self.editorRootBone is not None:
-            self.setUserProp( self.editorRootBone, 'LMTBone', 255 )
+        # if mip.import_compatwithlukasscript and self.editorRootBone is not None:
+        #     self.setUserProp( self.editorRootBone, 'LMTBone', 255 )
 
         for i, joint in enumerate( self.model.joints ):
             editorBone = self.editorBoneArray[ i ]
