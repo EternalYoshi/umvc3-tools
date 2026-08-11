@@ -53,11 +53,11 @@ def syncExportConfigFromScene( config, mip ):
     config.exportGroupPerMesh      = mip.export_group_per_mesh
     config.exportGenerateEnvelopes = mip.generate_envelopes
 
-    # DEPRECATED: mrl generation. Forced off so any leftover value in the AppData
-    # yml can't switch the dead code paths back on.
+    # DEPRECATED: mrl generation from the scene. Forced off so a leftover value in
+    # the AppData yml can't switch the dead code paths back on.
     config.exportGenerateMrl       = False
-    config.exportExistingMrlYml    = False
-    config.exportMrlYmlPath        = ''
+    config.exportExistingMrlYml    = mip.use_existing_mrl
+    config.exportMrlYmlPath        = mip.existing_mrl_yml
 
     config.exportMetadataPath      = mip.export_metadata_file if mip.export_withmetadata else ''
     config.exportRefPath           = mip.export_reference_model_file if mip.export_use_reference_model else ''
@@ -119,15 +119,15 @@ class SUB_PT_Model_Export(Panel):
             row = layout.row() 
 
             layout.separator()
-            # DEPRECATED: mrl generation
+            # DEPRECATED: generating an mrl from the blender scene
             # row = layout.row(align=True)
             # row.prop(mip, 'generate_mrl',text='Generate MRL:')
-            # row = layout.row(align=True)
-            # row.prop(mip, 'use_existing_mrl',text='Use Existing MRL YML:')
-            # row = layout.row(align=True)
-            # row.prop(mip, 'existing_mrl_yml')
-            # row = layout.row(align=True)
-            # row.operator(SUB_PT_MOD_OT_Choose_MRL_YML.bl_idname,icon='IMPORT',text= 'Choose MRL .yml file')
+            row = layout.row(align=True)
+            row.prop(mip, 'use_existing_mrl',text='Use Existing MRL YML:')
+            row = layout.row(align=True)
+            row.prop(mip, 'existing_mrl_yml')
+            row = layout.row(align=True)
+            row.operator(SUB_PT_MOD_OT_Choose_MRL_YML.bl_idname,icon='IMPORT',text= 'Choose MRL .yml file')
             layout.separator()
 
             row = layout.row(align=True)
@@ -271,11 +271,10 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
             else:
                 print("No Metadata to be used")
 
-            # DEPRECATED: mrl generation
-            # if mip.existing_mrl_yml == True:
-            #     print("\n MRL YML File to be used: ", mip.existing_mrl_yml)
-            # else:
-            #     print("Material will be generated from Blender")
+            if mip.use_existing_mrl:
+                print("\n MRL YML File to be used: ", mip.existing_mrl_yml)
+            else:
+                print("No MRL will be written")
 
             print("==========Import Filters==========")
             print(mip.export_weights)

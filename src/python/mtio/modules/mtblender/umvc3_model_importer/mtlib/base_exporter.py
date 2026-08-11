@@ -886,13 +886,14 @@ class ModelExporterBase(ABC):
         #         raise RuntimeError( f"Unable to save mrl yml file, make sure you have write permissions to {mrlYmlExportPath}" )
           
         self.updateProgress( 'Writing files', 75 )  
-        # DEPRECATED: mrl generation
-        # if self.config.exportGenerateMrl or (self.config.exportExistingMrlYml and self.mrl != None):
-        #     self.logger.info(f'exporting mrl yml to {mrlExportPath}')
-        #     try:
-        #         self.mrl.saveBinaryFile( mrlExportPath )
-        #     except PermissionError as e:
-        #         raise RuntimeError( f"Unable to save mrl file, make sure you have write permissions to {mrlExportPath}" )
+        # Kept for the existing-yml path. The generation half of the old condition
+        # is gone, so this only fires when the user supplied an mrl yml.
+        if self.config.exportExistingMrlYml and self.mrl != None:
+            self.logger.info(f'exporting mrl to {mrlExportPath}')
+            try:
+                self.mrl.saveBinaryFile( mrlExportPath )
+            except PermissionError as e:
+                raise RuntimeError( f"Unable to save mrl file, make sure you have write permissions to {mrlExportPath}" )
             
         self.updateProgress( 'Writing files', 100 )
     
@@ -950,11 +951,13 @@ class ModelExporterBase(ABC):
             self.ref = rModelData()
             self.ref.read( NclBitStream( util.loadIntoByteArray( mip.export_reference_model_file ) ) )
             
-        # DEPRECATED: mrl generation
-        # if os.path.exists( mip.existing_mrl_yml ):
-        #     self.logger.info(f'loading mrl yml from {mip.existing_mrl_yml}')
-        #     self.mrl = imMaterialLib()
-        #     self.mrl.loadYamlFile( mip.existing_mrl_yml )
+        # Loading an existing mrl yml is kept. It is a straight yml to binary mrl
+        # conversion, independent of generation and of the extracted archive path.
+        if mip.existing_mrl_yml != '' and os.path.exists( mip.existing_mrl_yml ):
+            self.logger.info(f'loading mrl yml from {mip.existing_mrl_yml}')
+            self.mrl = imMaterialLib()
+            self.mrl.loadYamlFile( mip.existing_mrl_yml )
+        # DEPRECATED: mrl generation from the blender scene
         # elif self.config.exportGenerateMrl:
         #     self.logger.info(f'generating new mrl')
         #     self.mrl = imMaterialLib()
