@@ -34,7 +34,10 @@ def syncExportConfigFromScene( config, mip ):
     # which gets loaded from a yml in %APPDATA% and was never updated from the UI.
     # Every checkbox on the export panel was doing nothing without this.
     config.flipUpAxis              = mip.export_flip_up_axis
-    config.lukasCompat             = mip.export_compatwithlukasscript
+    # DEPRECATED: export_compatwithlukasscript is commented out in properties.py, so
+    # reading it here raises AttributeError before any export can start.
+    # config.lukasCompat             = mip.export_compatwithlukasscript
+    config.lukasCompat             = False
 
     config.exportFilePath          = mip.export_modelpath
     # DEPRECATED: config.exportRoot was never read by anything

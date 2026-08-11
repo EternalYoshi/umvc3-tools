@@ -212,7 +212,9 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Path Test:\n", newMetadataPath)
 
         if '' == mip.input_modelpath:
-            mip.popupint = 0
+            # popupint is commented out in properties.py, so this raises before the
+            # message box the user actually needs to see.
+            # mip.popupint = 0
             ShowMessageBox("You need to choose a model file before anything can be imported.", "Notice")
             print("You need to choose a model file before anything can be imported.")
         else:
