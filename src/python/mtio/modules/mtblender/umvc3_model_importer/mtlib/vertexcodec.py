@@ -139,16 +139,16 @@ def encodeU8( val ):
 # type 9
 def encodeFU8( val ):
     #assert( isNormalizedFloat( val ) )
-    return int( val * 0xFF ) & 0xFF
+    return int( round( val * 0xFF ) ) & 0xFF
 
 # type 10
 def encodeFS8( val ):
     val = 0 if math.isnan( val ) else val
     if target.current.name in ['aa-pc']:
-        return int( val * 127 ) & 0xFF
+        return int( round( val * 127 ) ) & 0xFF
     else:
         # mvc3-pc
-        return int( ( val * 127 ) + 127 ) & 0xFF
+        return int( round( ( val * 127 ) + 127 ) ) & 0xFF
 
 # type 11
 def encodeX8Y8Z8W8( val ):

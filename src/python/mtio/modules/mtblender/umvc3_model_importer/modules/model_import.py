@@ -89,7 +89,7 @@ class SUB_PT_Model_Import(Panel):
         row = layout.row(align=True)
         row.prop(mip, 'flip_up_axis',text='Flip Up Axis')
 
-        # row = layout.row(align=True)
+        row = layout.row(align=True)
         # row.prop(mip, 'import_compatwithlukasscript',text='Compatibility With Lukas Script')
 
         row = layout.row(align=True)
@@ -246,5 +246,3 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
 #     def execute(self, context):
 #         self.report({'INFO'}, "This is a test")
 #         return {'FINISHED'}
-
-

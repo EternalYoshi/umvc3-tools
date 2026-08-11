@@ -312,10 +312,10 @@ class ModelImporterBase(ABC):
                 if joint.parentIndex == 255:
                     # flip up axis if necessary
                     localMtx = self.transformMtxNoScale * localMtx
-                # else:        
-                #     if joint.parentIndex == 255:
-                #         # only transform root
-                #         localMtx = self.transformMtx * localMtx         
+            else:        
+                if joint.parentIndex == 255:
+                    # only transform root
+                    localMtx = self.transformMtx * localMtx         
 
             worldMtx = localMtx
             jointName = self.metadata.getJointName( joint.id )           

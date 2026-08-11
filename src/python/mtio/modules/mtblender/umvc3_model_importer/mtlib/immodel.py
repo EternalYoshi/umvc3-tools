@@ -13,8 +13,8 @@ from copy import copy, deepcopy
 import sys
 
 def _isValidBoundingSphere( bs ):
-    '''Returns if the bounding sphere is not None or identity'''
-    return bs != None and (bs[0] != 0 and bs[1] != 0 and bs[2] != 0 and bs[3] != 0)
+    # Returns if the bounding sphere is usable.
+    return bs != None and bs[3] != 0
         
 class imVertexWeight:
     def __init__( self ):
@@ -37,7 +37,7 @@ class imEnvelope:
         self.index = index if index != None else sys.maxsize
         
 class imCacheVertex:
-    '''Trivially hash-able container for optimizing the vertex cache'''
+    # Trivially hash-able container for optimizing the vertex cache
     def __init__( self ):
         self.position = ()
         self.normal = ()
@@ -95,6 +95,7 @@ class imVertex(object):
         self.occlusion = 0
         self.weights = [0,0,0,0]
         self.jointIds = [0,0,0,0]
+        self.jointId = 0
         self.uvPrimary = NclVec2()
         self.uvSecondary = NclVec2()
         self.uvUnique = NclVec2()
@@ -292,6 +293,41 @@ typedef struct {
 } rVertexShaderInputLayout_IANonSkinBL;
 '''
 
+'''
+/* size = 20 */
+typedef struct {
+ local int64 p = FTell();
+ FSeek( p + 0 );  /* 1 */  f32 Position[3];
+ FSeek( p + 12 ); /* 11 */ vec432 Normal[1];
+ FSeek( p + 16 ); /* 2 */  f16 TexCoord[2];   /* all four UV channels alias this */
+ FSeek( p + 20 );
+} rVertexShaderInputLayout_IANonSkinB;
+'''
+
+class imVertexIANonSkinB(imVertex):
+    # Stage geometry uses this. Without it createFromShader returned None and every such
+    # mesh was silently promoted to IANonSkinTBNLA, stride 20 to 36, with tangent and
+    # occlusion invented from nothing.
+    STRIDE = 20
+    SHADER = 'IANonSkinB'
+    MAX_WEIGHT_COUNT = 0
+    COMPRESSED = False
+
+    def __init__( self ):
+        super().__init__()
+
+    @staticmethod
+    def getFlags():
+        return 0x01
+
+    def write( self, stream ):
+        stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
+        stream.writeFloat( vertexcodec.encodeF32( self.position[1] ) )
+        stream.writeFloat( vertexcodec.encodeF32( self.position[2] ) )
+        stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
+        stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[0] ) )
+        stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[1] ) )
+
 class imVertexIANonSkinBL(imVertex):
     STRIDE = 24
     SHADER = 'IANonSkinBL'
@@ -303,7 +339,9 @@ class imVertexIANonSkinBL(imVertex):
         
     @staticmethod    
     def getFlags():
-        return 0x101
+        # the high byte is a per primitive flag,
+        # not part of the vertex format.
+        return 0x01
         
     def write( self, stream ):
         stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
@@ -413,7 +451,10 @@ class imVertexIASkinBridge1wt(imVertex):
         stream.writeUShort( vertexcodec.encodeFS16( self.position[0] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[1] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[2] ) )
-        stream.writeShort( vertexcodec.encodeS16( self.jointIds[0] ) )
+        # jointId, not jointIds[0]. toBinaryModel only ever sets the singular field
+        # for 1 weight formats, so reading the array wrote a hardcoded 0 and every
+        # vertex using this format ended up rigged to the root.
+        stream.writeShort( vertexcodec.encodeS16( self.jointId ) )
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
 
 '''
@@ -516,6 +557,7 @@ class imVertexFormat(object):
         elif shader == imVertexIASkinTB1wt.SHADER: return imVertexFormat( imVertexIASkinTB1wt )
         elif shader == imVertexIASkinBridge1wt.SHADER: return imVertexFormat( imVertexIASkinBridge1wt )
         elif shader == imVertexIANonSkinTB.SHADER: return imVertexFormat( imVertexIANonSkinTB )
+        elif shader == imVertexIANonSkinB.SHADER: return imVertexFormat( imVertexIANonSkinB )
         elif shader == imVertexIANonSkinBL.SHADER: return imVertexFormat( imVertexIANonSkinBL )
         elif shader == imVertexIANonSkinTBNLA.SHADER: return imVertexFormat( imVertexIANonSkinTBNLA )
         else: return None
@@ -540,9 +582,7 @@ class imVertexFormat(object):
     
     @staticmethod
     def determineBestVertexFormat( model, prim ):
-        '''
-        Determine the best vertex format according to the data contained in the primitive.
-        '''
+        # Determine the best vertex format according to the data contained in the primitive.
    
         fmt = imVertexFormat()
         maxUsedBoneCount = prim.getMaxUsedBoneCount()
@@ -573,9 +613,7 @@ class imVertexFormat(object):
         return fmt
 
 class imPrimitive(object):
-    '''
-    Intermediate primitive data container intended to be used for generating optimized data for export
-    '''
+    # Intermediate primitive data container intended to be used for generating optimized data for export
     
     def __init__( self, name, materialName, flags=0xFFFF, group=None, 
             lodIndex=0xFF, vertexFlags=None, vertexStride=None, renderFlags=67, 
@@ -605,9 +643,8 @@ class imPrimitive(object):
         self.index = index if index != None else sys.maxsize
 
     def getMaxUsedBoneCount( self ):
-        '''
-        Get the max. number of used bones in the primitive
-        '''
+        # Get the max number of used bones in the primitive
+        
         totalMaxUsedBoneCount = 0
         if self.isSkinned():
             for w in self.weights:
@@ -620,10 +657,8 @@ class imPrimitive(object):
         return totalMaxUsedBoneCount
 
     def reduceWeights( self, maxWeightsPerVertex ):
-        '''
-        Reduce the weights in the primitive to be less or equal to the given max weights per vertex.
-        The most influential weights are kept, and the remainder is equally distributed.
-        '''
+        
+        # Reduce the weights in the primitive to be less or equal to the given max weights per vertex.
         
         # pick 4 most influential weights and remove the others
         if self.isSkinned():
@@ -668,9 +703,7 @@ class imPrimitive(object):
         return self.uvPrimary is not None and len( self.uvPrimary ) > 0
     
     def makeDirect( self ):
-        '''
-        Removes the need for the index buffer by duplicating all the vertex data according to it.
-        '''
+        # Removes the need for the index buffer by duplicating all the vertex data according to it.
         if not self.isIndexed():
             return
         else:
@@ -696,9 +729,7 @@ class imPrimitive(object):
         self.uvExtend = _trim( progressCb, self.uvExtend )
     
     def makeIndexed( self, progressCb = None ):
-        '''
-        Makes the model indexed by removing all duplicate vertex data and generating an index buffer that refers to each vertex component by index.
-        '''
+        # Makes the model indexed by removing all duplicate vertex data and generating an index buffer that refers to each vertex component by index.
         self.makeDirect()
         
         # copy vertex data
@@ -739,7 +770,8 @@ class imPrimitive(object):
                 cv.uvSecondary = (uvSecondary[i][0], uvSecondary[i][1]) if uvSecondary != None and len(uvSecondary) != 0 else None
                 cv.uvUnique = (uvUnique[i][0], uvUnique[i][1]) if uvUnique != None and len(uvUnique) != 0 else None
                 cv.uvExtend = (uvExtend[i][0], uvExtend[i][1]) if uvExtend != None and len(uvExtend) != 0 else None    
-                cv.tangent = (tangents[i][0], tangents[i][1], tangents[i][2], tangents[i][3]) if tangents != None else None
+                # tangents are generated after this now, so the list is normally empty here.
+                cv.tangent = (tangents[i][0], tangents[i][1], tangents[i][2], tangents[i][3]) if tangents != None and len(tangents) > i else None
 
             if isSkinned:
                 cv.weights = tuple(weights[i].weights)
@@ -783,8 +815,12 @@ class imPrimitive(object):
             self.indices.append( tempIndices[i] )
             
     def generateTangents( self, progressCb=None ):
-        tangents = [NclVec3()] * len(self.positions)
-        bitangents = [NclVec3()] * len(self.positions)
+        # [NclVec3()] * n gives n references to ONE glm vector, and glm's += mutates in
+        # place, so every vertex was accumulating into the same object. Each vertex ended
+        # up with the sum of every triangle in the primitive instead of its own. Building
+        # the list with a comprehension gives each vertex its own vector.
+        tangents = [NclVec3() for _ in range(len(self.positions))]
+        bitangents = [NclVec3() for _ in range(len(self.positions))]
         self.tangents = []
         count = len( self.indices ) if self.isIndexed() else len( self.positions )
 
@@ -799,9 +835,18 @@ class imPrimitive(object):
             texCoordA = self.uvPrimary[ triangleC ] - self.uvPrimary[ triangleA ]
             texCoordB = self.uvPrimary[ triangleB ] - self.uvPrimary[ triangleA ]
 
-            direction = texCoordA[0] * texCoordB[1] - texCoordA[1] * (1.0 if texCoordB[0] > 0.0 else -1.0)
-            #EDIT
-            direction *= -1
+            # uvPrimary is stored in MT convention (V down) but the tangent basis has
+            # to be worked out in the convention the art was authored in (V up), or the
+            # handedness comes out inverted. Reproducing Ryu's stored tangent signs from
+            # his own geometry gives 96% with V flipped and 4.5% without.
+            texCoordA = NclVec2(( texCoordA[0], -texCoordA[1] ))
+            texCoordB = NclVec2(( texCoordB[0], -texCoordB[1] ))
+
+            # proper 2d cross of the uv deltas. the old form substituted sign(texCoordB[0])
+            # for texCoordB[0], which threw away the magnitude and flipped sign whenever that
+            # delta was small. scaling both tangent and bitangent by it cancels out of the
+            # handedness test, so this only affects the tangent vector itself.
+            direction = texCoordA[0] * texCoordB[1] - texCoordA[1] * texCoordB[0]
 
             tangent = ( positionA * texCoordB[1] - positionB * texCoordA[1] ) * direction
             bitangent = ( positionB * texCoordA[0] - positionA * texCoordB[0] ) * direction
@@ -823,6 +868,15 @@ class imPrimitive(object):
 
             tangent = nclNormalize( tangent - normal * nclDot( tangent, normal ) )
             bitangent = nclNormalize( bitangent - normal * nclDot( bitangent, normal ) )
+
+            # A mesh with no uv area (every uv identical) gives a degenerate basis, and
+            # normalising it leaves NaN which encodes to a zero tangent. w is only ever
+            # +1 or -1 in retail, so fall back to any vector perpendicular to the normal.
+            if math.isnan( tangent[0] ) or nclLength( tangent ) < 0.0001:
+                axis = NclVec3( (0,0,1) ) if abs( normal[2] ) < 0.9 else NclVec3( (1,0,0) )
+                tangent = nclNormalize( nclCross( normal, axis ) )
+                self.tangents.append( NclVec4( ( tangent[0], tangent[1], tangent[2], 1.0 ) ) )
+                continue
 
             directionCheck = nclDot( nclNormalize( nclCross( normal, tangent ) ), bitangent )
             self.tangents.append( NclVec4( ( tangent[0], tangent[1], tangent[2], (1.0 if directionCheck > 0.0 else -1.0 ) ) ) )
@@ -963,7 +1017,6 @@ class imTag:
             yield tag, value
         
 class imModel:
-    '''Intermediate model data'''
 
     def __init__( self, primitives=None, joints=None, materials=None, groups=None,
         center=None, radius=None, min=None, max=None, 
@@ -1080,8 +1133,12 @@ class imModel:
                 modEnvelope.field04 = envelope.field04
                 modEnvelope.field08 = envelope.field08
                 modEnvelope.field0c = envelope.field0c
-                if _isValidBoundingSphere(envelope.boundingSphere) and envelope.min != None and envelope.max != None:
-                    # copy bounds from model
+                if envelope.boundingSphere != None and envelope.min != None and envelope.max != None:
+                    # Copy bounds from the reference verbatim. Don't run the sphere through
+                    # _isValidBoundingSphere here: retail models carry envelopes with a zero
+                    # radius and min == max (a point), which that check calls invalid, so 38
+                    # of Ryu's 414 were thrown away and replaced with the primitive's bounds.
+                    # min and max being set at all is what marks this as a ref copy.
                     modEnvelope.boundingSphere = envelope.boundingSphere
                     modEnvelope.min = envelope.min
                     modEnvelope.max = envelope.max

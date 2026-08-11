@@ -671,7 +671,7 @@ class ModelExporterBase(ABC):
             MeshNode = editorNode.node
             if not armatureCollections.intersection(MeshNode.users_collection):
                 continue
-            
+
             yield editorNode
 
     def generatePrimitives( self, editorNode: EditorNodeProxy, attribs: PrimitiveCustomAttributeData, 
