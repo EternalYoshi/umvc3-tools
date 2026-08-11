@@ -66,6 +66,9 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_remove_mt_attributes', text = 'Delete MT Attributes from Mesh')
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')
         elif obj.type == 'EMPTY' and context.mode != "OBJECT":
             row.label(text="Select the Group Node in Object Mode.")               
         elif obj.type == 'EMPTY' and context.mode == "OBJECT":    
@@ -263,3 +266,42 @@ class SUB_OP_REMOVE_MT_ATTRIBUTES(bpy.types.Operator):
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
         return {'FINISHED'}  
+
+class SUB_OP_CLEANUP_VERTEX_GROUPS(bpy.types.Operator):
+    bl_idname = 'sub.mod_op_cleanup_vertex_groups'
+    bl_label = "Cleanup Vertex Groups"
+
+    def execute(self,context):
+        scene = bpy.context.scene
+
+        #Stores the objects selected.
+        for obj in bpy.context.selected_objects:
+            if obj.type != 'MESH':
+                continue
+
+            #Check to see if the mesh has an Armature Modifier, and selects it.
+            Armature = next(
+                (
+                    modifier.object
+                    for modifier in obj.modifiers
+                    if modifier.type == 'ARMATURE' and modifier.object
+                ),
+                None
+            )
+            if not Armature:
+                continue
+
+            #Gather the relevant bone names.
+            RelevantBoneNames = {bone.name for bone in Armature.data.bones}
+        
+            #Discards the vertex groups that don't match bone names in the armature.
+            for vertex_group in list(obj.vertex_groups):
+                if vertex_group.name not in RelevantBoneNames:
+                    obj.vertex_groups.remove(vertex_group)
+
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
+        return {'FINISHED'}  
+
+
+
+
