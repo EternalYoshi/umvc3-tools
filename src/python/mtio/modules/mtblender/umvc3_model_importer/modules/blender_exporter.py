@@ -318,6 +318,18 @@ class BlenderModelExporter(ModelExporterBase):
             self.logger.debug( 'split normals unavailable, using vertex normals: ' + str( e ) )
         return None
 
+    def _getColorLayer( self, mesh ):
+        # written by the importer for the stage formats that carry baked colour.
+        # POINT domain so it indexes by vertex; CORNER is handled too in case the
+        # user made their own.
+        for name in ( 'VertexColor', 'Color', 'Col' ):
+            layer = mesh.color_attributes.get( name ) if hasattr( mesh, 'color_attributes' ) else None
+            if layer is not None:
+                return layer
+        if hasattr( mesh, 'color_attributes' ) and len( mesh.color_attributes ) > 0:
+            return mesh.color_attributes[0]
+        return None
+
     def _getUvLayers( self, mesh ):
         layers = dict()
         for slot in self.UV_LAYER_SLOTS:
@@ -379,6 +391,7 @@ class BlenderModelExporter(ModelExporterBase):
 
             loopNormals = self._getLoopNormals( mesh )
             uvLayers = self._getUvLayers( mesh )
+            colorLayer = self._getColorLayer( mesh )
 
             worldMtx = self._getSceneMtx( obj )
             normalMtx = worldMtx.to_3x3().inverted_safe().transposed()
@@ -444,6 +457,14 @@ class BlenderModelExporter(ModelExporterBase):
                         elif slot == 'UVSecondary': tempMesh.uvSecondary.append( converted )
                         elif slot == 'UVUnique':    tempMesh.uvUnique.append( converted )
                         elif slot == 'UVExtend':    tempMesh.uvExtend.append( converted )
+
+                    if colorLayer is not None:
+                        try:
+                            idx = loopIdx if colorLayer.domain == 'CORNER' else vertIdx
+                            c = colorLayer.data[idx].color
+                            tempMesh.colors.append( ( c[0], c[1], c[2], c[3] ) )
+                        except Exception:
+                            tempMesh.colors.append( ( 127.0/255.0, 127.0/255.0, 127.0/255.0, 1.0 ) )
 
                     if hasSkin:
                         tempMesh.weights.append( self._buildVertexWeight( vertex, boneIndexByGroup ) )

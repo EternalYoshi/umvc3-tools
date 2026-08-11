@@ -26,6 +26,7 @@ class DecodedVertexData:
     uvExtendArray: EditorArrayProxy
     weightArray: EditorArrayProxy
     jointArray: EditorArrayProxy
+    colorArray: EditorArrayProxy
 
 @dataclass
 class PreprocessedWeightData:
@@ -110,6 +111,7 @@ class ModelImporterBase(ABC):
         editorUVExtendArray = self.createArray()
         editorWeightArray = self.createArray()
         editorJointArray = self.createArray()
+        editorColorArray = self.createArray()
 
         self.logger.debug( 'decoding vertices' )
         vertexBufferStart = primitive.vertexBufferOffset + (primitive.vertexStartIndex * primitive.vertexStride)
@@ -119,6 +121,8 @@ class ModelImporterBase(ABC):
             # decode each vertex input
             editorVtxWeightArray = None
             editorVtxJointArray = None
+            vtxColor = None
+            vtxAlpha = None
             for key, value in shaderInfo.inputsByName.items():
                 for inputInfo in value:
                     vertexStream.setOffset( vertexStart + inputInfo.offset )
@@ -147,9 +151,20 @@ class ModelImporterBase(ABC):
                         editorUVSecondaryArray.append( self.convertNclVec3ToPoint3( self.decodeInputToUV( inputInfo, vertexStream ) ) )
                     elif key == 'UV_Unique':
                         editorUVUniqueArray.append( self.convertNclVec3ToPoint3( self.decodeInputToUV( inputInfo, vertexStream ) ) )
+                    elif key == 'VertexColor':
+                        # stored 0..255 per channel
+                        vtxColor = [ float( vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[0] )
+                                     for _ in range( inputInfo.componentCount ) ]
+                    elif key == 'VertexAlpha':
+                        vtxAlpha = float( vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[0] )
                     elif key == 'UV_Extend':
                         editorUVExtendArray.append( self.convertNclVec3ToPoint3( self.decodeInputToUV( inputInfo, vertexStream ) ) )
                         
+            if vtxColor != None or vtxAlpha != None:
+                c = vtxColor if vtxColor != None else [127.0, 127.0, 127.0]
+                a = vtxAlpha if vtxAlpha != None else 1.0
+                editorColorArray.append( ( c[0]/255.0, c[1]/255.0, c[2]/255.0, a ) )
+
             if editorVtxWeightArray != None:
                 editorWeightArray.append( editorVtxWeightArray )
             if editorVtxJointArray != None:
@@ -163,7 +178,8 @@ class ModelImporterBase(ABC):
             editorUVUniqueArray,
             editorUVExtendArray,
             editorWeightArray,
-            editorJointArray
+            editorJointArray,
+            editorColorArray
         )
             
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:

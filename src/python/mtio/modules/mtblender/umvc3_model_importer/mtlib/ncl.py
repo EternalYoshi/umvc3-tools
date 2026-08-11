@@ -188,6 +188,10 @@ if not libtarget.noesis:
             self._ensureCapacity( 1 )
             self.buffer[ self.offset ] = data & 0xFF
             self.offset += 1
+            # every other write updates size, this one didn't. getBuffer() truncates to
+            # size, so any bytes written after the last non-byte write were silently
+            # dropped. Only bit anything now that stage formats end in colour/alpha.
+            self.size = max( self.size, self.offset )
             
         def writeBool( self, data ):
             self.writeByte( data )
