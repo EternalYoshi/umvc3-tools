@@ -14,11 +14,11 @@ def register():
     )
         
 class UMVC3ModelImportProperties(PropertyGroup):
-    # import_compatwithlukasscript: BoolProperty(
-    #     name='Compatibility With Lukas'' script.',
-    #     description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',
-    #     default=False,
-    # )
+    import_compatwithlukasscript: BoolProperty(
+        name='Compatibility With Lukas'' script.',
+        description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',
+        default=False,
+    )
     input_modelpath: StringProperty(
         name = 'Model File Path',  
         description = 'The UMVC3 .mod file to import',
@@ -147,11 +147,11 @@ class UMVC3ModelImportProperties(PropertyGroup):
         maxlen=1024,
         subtype='DIR_PATH',
     )        
-    # export_compatwithlukasscript: BoolProperty(
-    #     name='Compatibility With Lukas'' script.',
-    #     description='Exports in a way that is compatible with the classic 3ds maxscript',
-    #     default=False,
-    # )
+    export_compatwithlukasscript: BoolProperty(
+        name='Compatibility With Lukas'' script.',
+        description='Exports in a way that is compatible with the classic 3ds maxscript',
+        default=False,
+    )
     export_use_reference_model: BoolProperty(
         name='Use Reference Model',
         description='Determines whether or not to use a reference model when exporting',

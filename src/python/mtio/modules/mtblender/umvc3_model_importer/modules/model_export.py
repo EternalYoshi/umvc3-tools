@@ -34,10 +34,11 @@ def syncExportConfigFromScene( config, mip ):
     # which gets loaded from a yml in %APPDATA% and was never updated from the UI.
     # Every checkbox on the export panel was doing nothing without this.
     config.flipUpAxis              = mip.export_flip_up_axis
-    #config.lukasCompat             = mip.export_compatwithlukasscript
+    config.lukasCompat             = mip.export_compatwithlukasscript
 
     config.exportFilePath          = mip.export_modelpath
-    config.exportRoot              = mip.extracted_archive_directory
+    # DEPRECATED: config.exportRoot was never read by anything
+    # config.exportRoot              = mip.extracted_archive_directory
 
     config.exportWeights           = mip.export_weights
     config.exportNormals           = mip.export_normals
@@ -52,7 +53,9 @@ def syncExportConfigFromScene( config, mip ):
     config.exportGroupPerMesh      = mip.export_group_per_mesh
     config.exportGenerateEnvelopes = mip.generate_envelopes
 
-    config.exportGenerateMrl       = mip.generate_mrl
+    # DEPRECATED: mrl generation from the scene. Forced off so a leftover value in
+    # the AppData yml can't switch the dead code paths back on.
+    config.exportGenerateMrl       = False
     config.exportExistingMrlYml    = mip.use_existing_mrl
     config.exportMrlYmlPath        = mip.existing_mrl_yml
 
@@ -91,8 +94,9 @@ class SUB_PT_Model_Export(Panel):
             row.prop(mip, 'export_modelpath')
             row = layout.row(align=True)
             row.operator(SUB_OP_MOD_ExportModelPath.bl_idname, icon='IMPORT', text='Choose UMVC3 .mod file')       
-            row = layout.row(align=True)
-            row.prop(mip, 'extracted_archive_directory')  
+            # DEPRECATED: extracted archive directory, only fed the mrl texture paths
+            # row = layout.row(align=True)
+            # row.prop(mip, 'extracted_archive_directory')
             row = layout.row(align=True)
 
             row.prop(mip, 'export_use_reference_model',text='Use Reference Model when exporting:')
@@ -111,12 +115,13 @@ class SUB_PT_Model_Export(Panel):
             row = layout.row(align=True)
             row.prop(mip, 'export_flip_up_axis',text='Flip Up Axis')
             row = layout.row(align=True)
-            # row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')        
-            # row = layout.row() 
+            row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')        
+            row = layout.row() 
 
             layout.separator()
-            row = layout.row(align=True)
-            row.prop(mip, 'generate_mrl',text='Generate MRL:')
+            # DEPRECATED: generating an mrl from the blender scene
+            # row = layout.row(align=True)
+            # row.prop(mip, 'generate_mrl',text='Generate MRL:')
             row = layout.row(align=True)
             row.prop(mip, 'use_existing_mrl',text='Use Existing MRL YML:')
             row = layout.row(align=True)
@@ -254,7 +259,7 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
         def _execute():
             print("Variable Check!\n")
             print("Model Chosen: ", mip.export_modelpath)
-            print("Chosen Archive Directory: ", mip.extracted_archive_directory)
+            # print("Chosen Archive Directory: ", mip.extracted_archive_directory)
 
             if mip.export_use_reference_model == True:
                 print("\n Reference Model to be used: ", mip.export_reference_model_file)
@@ -266,10 +271,10 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
             else:
                 print("No Metadata to be used")
 
-            if mip.existing_mrl_yml == True:
+            if mip.use_existing_mrl:
                 print("\n MRL YML File to be used: ", mip.existing_mrl_yml)
             else:
-                print("Material will be generated from Blender")
+                print("No MRL will be written")
 
             print("==========Import Filters==========")
             print(mip.export_weights)
@@ -282,7 +287,7 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
 
             print("Model Scale: ",str(mip.export_model_scale))
             print("Flip Up Axis = ",mip.export_flip_up_axis)
-            # print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
+            print("Importing in the style of the old Maxscript = ",mip.export_compatwithlukasscript)
             print("Bake Scale Into Translation = ",mip.export_bake_scale)
             print("Convert Textures to Tex = ",mip.convert_tex_to_tex)
             print("Overwrite Existing Textures = ",mip.export_overwrite_textures)

@@ -65,7 +65,7 @@ class EditorCustomAttributeSetProxy(ABC):
         if __name != '_ctx':
             return self.getCustomAttribute(__name)
         else:
-            super().__getattribute__(__name)
+            return super().__getattribute__(__name)
 
 class EditorNodeProxy(ABC):
     def __init__(self, plugin):

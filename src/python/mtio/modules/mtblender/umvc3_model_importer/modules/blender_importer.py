@@ -145,9 +145,16 @@ class BlenderModelImporter(ModelImporterBase):
         setUVMap(mesh, faces, vertexData.uvExtendArray, 'UVExtend')
         setUVMap(mesh, faces, vertexData.uvUniqueArray, 'UVUnique')
 
-        #if colors is not None:
-        #    mesh.vertex_colors.new(name="KF_COLOR")
-        #    mesh.vertex_colors["KF_COLOR"].data.foreach_set("color", colors)
+        # Stage formats (IANonSkinBC/BCA/TBNL) carry baked per vertex colour and alpha.
+        # Store it as a POINT domain byte colour so the exporter can read it straight
+        # back per vertex, no corner mapping needed.
+        if len( vertexData.colorArray ) == len( verts ):
+            try:
+                layer = mesh.color_attributes.new( name='VertexColor', type='BYTE_COLOR', domain='POINT' )
+                for i, c in enumerate( vertexData.colorArray ):
+                    layer.data[i].color = ( c[0], c[1], c[2], c[3] )
+            except Exception as e:
+                self.logger.debug( 'could not create vertex colour layer: ' + str( e ) )
         
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 

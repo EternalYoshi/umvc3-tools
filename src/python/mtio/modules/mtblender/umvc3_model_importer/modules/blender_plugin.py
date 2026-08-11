@@ -46,20 +46,47 @@ class BlenderCustomAttributeSetProxy(EditorCustomAttributeSetProxy):
     def __init__(self, attribs) -> None:
         super().__init__(attribs)
 
-    def getCustomAttribute(self, name: str) -> Any:
-
-        #Gotta do this to accommodate for moving the MT Attributes of bones to the Pose Bone.
-        if isinstance(self._ctx, bpy.types.Bone):
-            Armature = self._ctx.id_data
-            BoneID = self._ctx.name
+    def _resolve(self):
+        # Object mode Bone props aren't reachable from a script, so the importer
+        # parks the MT attributes on the matching Pose bone. Both the read and the
+        # write side have to go through here or they land on different datablocks.
+        ctx = self._ctx
+        if ctx is None:
+            return None
+        if isinstance(ctx, bpy.types.Bone):
+            armature = ctx.id_data
             for obj in bpy.data.objects:
-                if obj.type == 'ARMATURE' and obj.data == Armature:
-                    return obj.pose.bones[BoneID][name]
-        else:
-            return self._ctx[name]
+                if obj.type == 'ARMATURE' and obj.data == armature:
+                    return obj.pose.bones.get(ctx.name)
+            return None
+        return ctx
+
+    def getCustomAttribute(self, name: str) -> Any:
+        ctx = self._resolve()
+        if ctx is None:
+            return None
+        try:
+            return ctx[name]
+        except (KeyError, TypeError):
+            # missing key, not an error. callers treat None as "not set" and fall
+            # back to defaults. raising KeyError here also broke getattr(_, _, None)
+            # since getattr only swallows AttributeError.
+            return None
 
     def setCustomAttribute(self, name: str, value: Any):
-        self._ctx[name] = value
+        ctx = self._resolve()
+        if ctx is None:
+            return
+        ctx[name] = value
+
+    def hasCustomAttribute(self, name: str) -> bool:
+        ctx = self._resolve()
+        if ctx is None:
+            return False
+        try:
+            return name in ctx.keys()
+        except (AttributeError, TypeError):
+            return False
 
 class BlenderLayerProxy(EditorLayerProxy):
     def __init__(self, layer) -> None:
@@ -83,7 +110,12 @@ class BlenderNodeProxy(EditorNodeProxy):
         return convertMatrix3ToNclMat44(self.node.matrix_local)
 
     def getParent(self):
-        return BlenderNodeProxy(self.node.parent)
+        parent = getattr(self.node, 'parent', None)
+        if parent is None:
+            # was wrapping None in a proxy, so `node.getParent() != None` was true
+            # for every unparented object and the caller would blow up downstream
+            return None
+        return BlenderNodeProxy(parent)
 
     def getName(self):
         return self.node.name
@@ -252,8 +284,15 @@ class BlenderPlugin(EditorPluginBase):
 
     def getNodeByName(self, name: str) -> EditorNodeProxy:
         obj = bpy.data.objects.get(name)
-        if obj is None: return None
-        return BlenderNodeProxy(obj)
+        if obj is not None:
+            return BlenderNodeProxy(obj)
+        # Bones are not objects, so an object only lookup meant every symmetry
+        # lookup came back None and the exported skeleton had no symmetry at all.
+        for armature in bpy.data.armatures:
+            bone = armature.bones.get(name)
+            if bone is not None:
+                return BlenderNodeProxy(bone)
+        return None
 
     def getAppDataDir( self ):
         path = os.path.expandvars( '%APPDATA%\\MtBlender' )

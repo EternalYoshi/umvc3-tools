@@ -305,4 +305,3 @@ class SUB_OP_CLEANUP_VERTEX_GROUPS(bpy.types.Operator):
 
 
 
-
