@@ -339,7 +339,9 @@ class imVertexIANonSkinBL(imVertex):
         
     @staticmethod    
     def getFlags():
-        return 0x101
+        # the high byte is a per primitive flag,
+        # not part of the vertex format.
+        return 0x01
         
     def write( self, stream ):
         stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
