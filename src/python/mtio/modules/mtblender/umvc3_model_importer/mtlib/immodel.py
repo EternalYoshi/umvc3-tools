@@ -1424,7 +1424,7 @@ class imModel:
             prim.envelopeCount = len(mesh.envelopes)
             prim.id = meshIndex + 1 if mesh.id is None else mesh.id # ids start with 1
             prim.minVertexIndex = 0
-            prim.maxVertexIndex = prim.minVertexIndex + prim.vertexCount
+            prim.maxVertexIndex = prim.minVertexIndex + prim.vertexCount - 1
             prim.field2c = 0
             prim.envelopePtr = 0
             mod.primitives.append( prim )
