@@ -113,7 +113,7 @@ class ModelImporterBase(ABC):
         editorJointArray = self.createArray()
         editorColorArray = self.createArray()
 
-        self.logger.debug( 'decoding vertices' ) +
+        self.logger.debug( 'decoding vertices' )
         # vertexBufferOffset + (indexStartIndex + vertexStartIndex) * stride equals the running byte total
         vertexBufferStart = primitive.vertexBufferOffset + \
             ( ( primitive.indexStartIndex + primitive.vertexStartIndex ) * primitive.vertexStride )
