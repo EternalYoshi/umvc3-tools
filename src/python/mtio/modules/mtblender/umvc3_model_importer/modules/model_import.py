@@ -106,7 +106,10 @@ class SUB_PT_Model_Import(Panel):
 
         row = layout.row(align=True)
         row.prop(mip, 'inherit_scale',text='Inherit Scale')
-        
+
+        row = layout.row(align=True)
+        row.prop(mip, 'bones_in_front',text='Set Imported Model Bones To Display In Front')
+
         # row = layout.row(align=True)
         # row.prop(mip, 'normalize_bone_length',text='Normalize Bone Length')
 
@@ -210,7 +213,8 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Make Child Bones Inherit Scale = ",mip.inherit_scale)
         newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.input_modelpath).split('.')[0] )
         print("Path Test:\n", newMetadataPath)
-
+        print("Display Bones in Front:\n", mip.bones_in_front)
+        
         if '' == mip.input_modelpath:
             # popupint is commented out in properties.py, so this raises before the
             # message box the user actually needs to see.

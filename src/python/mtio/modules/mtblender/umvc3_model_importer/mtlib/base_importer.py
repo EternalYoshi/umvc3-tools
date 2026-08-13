@@ -462,6 +462,11 @@ class ModelImporterBase(ABC):
         self.importEnvelopes() 
         if mip.import_meshes:
             self.importPrimitives(context)
+
+        if mip.bones_in_front:
+            filler = ''
+            self.armatureObj.show_in_front = mip.bones_in_front
+            #Thingy.
         
         if not self.plugin.isDebugEnv():
             self.plugin.enableSceneRedraw()

@@ -14,11 +14,11 @@ def register():
     )
         
 class UMVC3ModelImportProperties(PropertyGroup):
-    import_compatwithlukasscript: BoolProperty(
-        name='Compatibility With Lukas'' script.',
-        description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',
-        default=False,
-    )
+    # import_compatwithlukasscript: BoolProperty(
+    #     name='Compatibility With Lukas'' script.',
+    #     description='Imports in a way that is compatible with the classic 3ds maxscript(Not full functional at the moment!)',
+    #     default=False,
+    # )
     input_modelpath: StringProperty(
         name = 'Model File Path',  
         description = 'The UMVC3 .mod file to import',
@@ -86,7 +86,7 @@ class UMVC3ModelImportProperties(PropertyGroup):
     inherit_scale: BoolProperty(
         name='Inherit Scale',
         description='Enables child bones to inherit scale of parents in animations. Recommended to leave unchecked or false if model is to be used for animation',
-        default=True,
+        default=False,
     )                    
     create_layer: BoolProperty(
         name='Create_Collection',
@@ -213,7 +213,7 @@ class UMVC3ModelImportProperties(PropertyGroup):
     )    
     existing_mrl_yml: StringProperty(
         name = 'Material YML File Path',  
-        description = 'The material YML to use to create the mrl.',
+        description = 'The material YML to use to create the mrl',
         default = '',
         maxlen=1024,
         #subtype='FILE_PATH',
@@ -252,4 +252,9 @@ class UMVC3ModelImportProperties(PropertyGroup):
         name='Generate Envelopes',
         description='Produces skin data for exporting. Leave unchecked if using a custom skeleton. Recommended to leave on for stages',
         default=True,
-    )    
+    )
+    bones_in_front: BoolProperty(
+        name='Display Model Bones In Front',
+        description='Sets the imported Models Armature to display its bones in front',
+        default=True,
+    )
