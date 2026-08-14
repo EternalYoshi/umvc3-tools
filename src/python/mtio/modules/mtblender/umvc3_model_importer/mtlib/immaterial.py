@@ -404,6 +404,38 @@ class imMaterialInfo(object):
         return self.rasterizerState in imMaterialInfo.DOUBLE_SIDED_RASTER_STATES \
             or 'NoCull' in self.rasterizerState
 
+    def getUVAnimation( self ):
+        '''-> dict(channel, direction, rate, blocks) or None.'''
+        if not self.animData:
+            return None
+        import struct
+        data = self.animData
+        if len( data ) < 0x9c:
+            return None
+        try:
+            rate = struct.unpack_from( '<I', data, 0x10 )[0]
+            u, v = struct.unpack_from( '<2f', data, 0x94 )
+        except Exception:
+            return None
+
+        # which channel the shader is allowed to offset. secondary wins when both are
+        # flagged, since that is where the scrolling blend map lives.
+        channel = 'UVPrimary'
+        for flag, name in ( ( 'FUVTransformSecondary', 'UVSecondary' ),
+                            ( 'FUVTransformUnique',    'UVUnique' ),
+                            ( 'FUVTransformExtend',    'UVExtend' ),
+                            ( 'FUVTransformPrimary',   'UVPrimary' ) ):
+            if self.getFlagValue( flag ) == 'FUVTransformOffset':
+                channel = name
+                break
+
+        return {
+            'channel':   channel,
+            'direction': ( u, v ),
+            'rate':      rate,
+            'blocks':    max( 0, ( len( data ) - 0x40 ) // 80 ),
+        }
+
     def getCBuffer( self, name ):
         '''Named constant buffer as a flat list of floats, or None.'''
         for cmd in self.cmds:

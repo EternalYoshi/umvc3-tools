@@ -431,7 +431,57 @@ class BlenderModelImporter(ModelImporterBase):
         uv.location.y = tex_node.location.y
         uv.label = slot + ' -> ' + channel
         bpy_material.node_tree.links.new( uv.outputs['UV'], tex_node.inputs['Vector'] )
+
+        try:
+            anim = material.getUVAnimation()
+        except Exception:
+            anim = None
+        if anim is not None and anim['channel'] == channel and any( anim['direction'] ):
+            self._attachUVScroll( bpy_material, nodes, uv, tex_node, anim )
         return uv
+
+    UV_SCROLL_REFERENCE_RATE = 240.0    # Dante's gauntlet, the one we have seen moving
+    UV_SCROLL_BASE_SPEED     = 0.004    # uv units per frame at that rate
+
+    def _attachUVScroll( self, bpy_material, nodes, uv_node, tex_node, anim ):
+        try:
+            links = bpy_material.node_tree.links
+            mapping = nodes.new( 'ShaderNodeMapping' )
+            mapping.location.x = uv_node.location.x + 100
+            mapping.location.y = uv_node.location.y - 120
+            mapping.label = 'UV scroll'
+            links.new( uv_node.outputs['UV'], mapping.inputs['Vector'] )
+            links.new( mapping.outputs['Vector'], tex_node.inputs['Vector'] )
+
+            rate = anim['rate'] if anim['rate'] else self.UV_SCROLL_REFERENCE_RATE
+            speed = self.UV_SCROLL_BASE_SPEED * ( self.UV_SCROLL_REFERENCE_RATE / float( rate ) )
+
+            u, v = anim['direction']
+            bpy_material['UVScrollSpeed'] = speed
+            bpy_material['UVScrollU']     = float( u )
+            bpy_material['UVScrollV']     = float( v )
+            bpy_material['UVScrollRate']  = int( anim['rate'] )
+
+            # one driver per axis, so a material can scroll diagonally if it wants to
+            for axis, prop in ( ( 0, 'UVScrollU' ), ( 1, 'UVScrollV' ) ):
+                drv = mapping.inputs['Location'].driver_add( 'default_value', axis ).driver
+                drv.type = 'SCRIPTED'
+                a = drv.variables.new(); a.name = 'spd'
+                a.targets[0].id_type = 'MATERIAL'
+                a.targets[0].id = bpy_material
+                a.targets[0].data_path = '["UVScrollSpeed"]'
+                b = drv.variables.new(); b.name = 'dir'
+                b.targets[0].id_type = 'MATERIAL'
+                b.targets[0].id = bpy_material
+                b.targets[0].data_path = '["%s"]' % prop
+                drv.expression = 'frame * spd * dir'
+
+            self.logger.info(
+                f"uv scroll on {bpy_material.name}: channel {anim['channel']}, "
+                f"vector ({u:+.0f}, {v:+.0f}), rate {anim['rate']}" )
+        except Exception as e:
+            self.logger.debug( 'could not set up uv scroll: ' + str( e ) )
+
 
     def _applyMaterialState( self, bpy_material, material ):
         '''Blend and raster state map straight onto blender material settings and
