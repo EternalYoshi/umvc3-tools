@@ -362,6 +362,64 @@ class imMaterialInfo(object):
                     return cmd.data
         return None
     
+    def getFlagValue( self, flagName ):
+        '''Value of a 'flag' command, e.g. FUVAlbedoMap -> FUVPrimary. None if absent.'''
+        for cmd in self.cmds:
+            if cmd.type == 'flag' and cmd.name == flagName:
+                return cmd.data
+        return None
+
+    def hasFlag( self, flagName ):
+        '''Whether a flag command is present at all. Feature toggles like FBump are
+        present when the feature is on and absent when it is not.'''
+        return self.getFlagValue( flagName ) is not None
+
+    def getUVChannelForSlot( self, slotName ):
+        '''Which UV channel feeds a texture slot. The mrl pairs tAlbedoMap with a
+        FUVAlbedoMap flag whose value names the channel. Falls back to primary.'''
+        flag = 'FUV' + slotName[1:] if slotName.startswith( 't' ) else 'FUV' + slotName
+        value = self.getFlagValue( flag )
+        return {
+            'FUVPrimary':   'UVPrimary',
+            'FUVSecondary': 'UVSecondary',
+            'FUVUnique':    'UVUnique',
+            'FUVExtend':    'UVExtend',
+        }.get( value, 'UVPrimary' )
+
+    def isAlphaBlended( self ):
+        '''BSSolid writes opaque. Anything in the alpha family composites. Dante is
+        BSSolid on all 25 materials, so the alpha path is inferred from the naming
+        rather than confirmed against a retail file that uses it.'''
+        if self.blendState is None:
+            return False
+        return self.blendState != 'BSSolid' and 'Alpha' in self.blendState
+
+    # Raster states seen in retail mrls. RSMesh is the default and culls backfaces.
+    # RSMeshCN is 'cull none', used on the two sided pieces (Dante's coat tails).
+    DOUBLE_SIDED_RASTER_STATES = ( 'RSMeshCN', 'RSMeshNoCull', 'RSNoCull' )
+
+    def isDoubleSided( self ):
+        if self.rasterizerState is None:
+            return False
+        return self.rasterizerState in imMaterialInfo.DOUBLE_SIDED_RASTER_STATES \
+            or 'NoCull' in self.rasterizerState
+
+    def getCBuffer( self, name ):
+        '''Named constant buffer as a flat list of floats, or None.'''
+        for cmd in self.cmds:
+            if cmd.type == 'cbuffer' and cmd.name == name:
+                return cmd.data
+        return None
+
+    def getHalfLambert( self ):
+        '''CBHalfLambert is (bias, scale, 0, 0) and drives the toon ramp lookup.
+        Dante ships 7 distinct pairs across 25 materials, so it is genuinely per
+        material rather than a constant.'''
+        v = self.getCBuffer( 'CBHalfLambert' )
+        if v is None or len( v ) < 2:
+            return None
+        return ( float( v[0] ), float( v[1] ) )
+
     def iterTextures( self ):
         for cmd in self.cmds:
             if cmd.type == 'texture':

@@ -417,6 +417,40 @@ class BlenderModelImporter(ModelImporterBase):
             self.setJointCustomAttributes( joint, editorBone )
     
     # Material functions
+    def _attachUVChannel( self, bpy_material, nodes, tex_node, material, slot ):
+        '''The mrl says which uv channel feeds each texture slot. Without an explicit
+        UV Map node blender falls back to whichever layer happens to be active, which
+        is wrong for anything not using the primary channel.'''
+        try:
+            channel = material.getUVChannelForSlot( slot )
+        except Exception:
+            channel = 'UVPrimary'
+        uv = nodes.new( 'ShaderNodeUVMap' )
+        uv.uv_map = channel
+        uv.location.x = tex_node.location.x - 200
+        uv.location.y = tex_node.location.y
+        uv.label = slot + ' -> ' + channel
+        bpy_material.node_tree.links.new( uv.outputs['UV'], tex_node.inputs['Vector'] )
+        return uv
+
+    def _applyMaterialState( self, bpy_material, material ):
+        '''Blend and raster state map straight onto blender material settings and
+        matter more visually than people expect.'''
+        try:
+            if material.isDoubleSided():
+                bpy_material.use_backface_culling = False
+            else:
+                bpy_material.use_backface_culling = True
+
+            if material.isAlphaBlended():
+                bpy_material.blend_method = 'BLEND'
+                if hasattr( bpy_material, 'shadow_method' ):
+                    bpy_material.shadow_method = 'HASHED'
+                bpy_material.show_transparent_back = False
+            else:
+                bpy_material.blend_method = 'OPAQUE'
+        except Exception as e:
+            self.logger.debug( 'could not apply material state: ' + str( e ) )
     def convertMaterial( self, material: imMaterialInfo, context, materialName: str ):
         bpy_material = bpy.data.materials.new(name=materialName)
         bpy_material.use_nodes = True
@@ -432,6 +466,12 @@ class BlenderModelImporter(ModelImporterBase):
                 albedo_tex.location.x = -900
                 albedo_tex.location.y = 300
                 bpy_material.node_tree.links.new(albedo_tex.outputs["Color"], principled_bsdf.inputs["Base Color"])
+                self._attachUVChannel( bpy_material, nodes, albedo_tex, material, 'tAlbedoMap' )
+
+                # the albedo alpha channel is the transparency source when the
+                # blend state composites rather than writing opaque
+                if material.isAlphaBlended():
+                    bpy_material.node_tree.links.new(albedo_tex.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
 
             specular_map = self.loadTextureSlot(material, "tSpecularMap", context)
             if specular_map:
@@ -454,6 +494,7 @@ class BlenderModelImporter(ModelImporterBase):
                 #Sets the Color Space to Non-Color so the material displays properly.
                 metalness_tex.image.colorspace_settings.name = 'Non-Color'                
                 bpy_material.node_tree.links.new(metalness_tex_power.outputs["Value"], principled_bsdf.inputs["Roughness"])
+                self._attachUVChannel( bpy_material, nodes, metalness_tex, material, 'tSpecularMap' )
 
             normal_map = self.loadTextureSlot(material, "tNormalMap", context)
             if normal_map:
@@ -497,12 +538,58 @@ class BlenderModelImporter(ModelImporterBase):
                 bpy_material.node_tree.links.new(normal_map_combine.outputs["Color"], normal_map_node.inputs["Color"])
 
                 bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
+                self._attachUVChannel( bpy_material, nodes, normal_map_tex, material, 'tNormalMap' )
 
                 # normal_map_tex.image.colorspace_settings.name = 'Non-Color'                
                 # bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_node.inputs["Color"])
                 # bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
             
+            # A second albedo layered over the first, on its own uv channel.
+            # Dante uses it on two materials. Mixed rather than replacing, which is
+            # the sane default without knowing the shader's exact blend.
+            blend_map = self.loadTextureSlot( material, 'tAlbedoBlendMap', context )
+            if blend_map and albedo_map:
+                blend_tex = nodes.new( 'ShaderNodeTexImage' )
+                blend_tex.image = blend_map
+                blend_tex.location.x = -900
+                blend_tex.location.y = 600
+                blend_tex.label = 'tAlbedoBlendMap'
+                self._attachUVChannel( bpy_material, nodes, blend_tex, material, 'tAlbedoBlendMap' )
+
+                try:
+                    links = bpy_material.node_tree.links
+                    mix = nodes.new( 'ShaderNodeMixRGB' )
+                    mix.blend_type = 'MIX'
+                    mix.location.x = -600
+                    mix.location.y = 450
+                    links.new( albedo_tex.outputs['Color'], mix.inputs['Color1'] )
+                    links.new( blend_tex.outputs['Color'], mix.inputs['Color2'] )
+                    links.new( blend_tex.outputs['Alpha'], mix.inputs['Fac'] )
+                    links.new( mix.outputs['Color'], principled_bsdf.inputs['Base Color'] )
+                except Exception as e:
+                    self.logger.debug( 'could not wire tAlbedoBlendMap: ' + str( e ) )
+
+            # Toon ramps. MT uses these for cel shading, which blender has no direct
+            # equivalent for, so load them unconnected rather than guessing at a graph
+            # and getting it wrong. They are there to look at and to hand edit.
+            for slot, yoff in ( ( 'tToonMap', 1200 ), ( 'tToonRevMap', 1000 ) ):
+                toon_img = self.loadTextureSlot( material, slot, context )
+                if toon_img:
+                    toon_tex = nodes.new( 'ShaderNodeTexImage' )
+                    toon_tex.image = toon_img
+                    toon_tex.location.x = -400
+                    toon_tex.location.y = yoff
+                    toon_tex.label = slot
+
+            # CBHalfLambert drives the toon ramp lookup and varies per material,
+            # 7 distinct pairs across Dante's 25. Stash it so it isn't lost.
+            hl = material.getHalfLambert()
+            if hl is not None:
+                bpy_material['CBHalfLambert'] = [ hl[0], hl[1] ]
+
             #Light Maps. tOcclusionMap
+            self._applyMaterialState( bpy_material, material )
+
             light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
             if light_map:
                 light_map_tex = nodes.new("ShaderNodeTexImage")   
@@ -513,7 +600,11 @@ class BlenderModelImporter(ModelImporterBase):
 
                 #Attempt to create a UV Map Node & attach it.
                 light_map_UVMap = nodes.new("ShaderNodeUVMap")
-                light_map_UVMap.uv_map = "UVUnique"
+                # was hardcoded to UVUnique; the mrl names the channel per slot
+                try:
+                    light_map_UVMap.uv_map = material.getUVChannelForSlot( 'tOcclusionMap' )
+                except Exception:
+                    light_map_UVMap.uv_map = "UVUnique"
                 light_map_UVMap.location.x = -550
                 light_map_UVMap.location.y = 800
                 bpy_material.node_tree.links.new(light_map_UVMap.outputs["UV"], light_map_tex.inputs["Vector"])
