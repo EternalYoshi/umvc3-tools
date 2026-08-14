@@ -454,7 +454,6 @@ class BlenderModelImporter(ModelImporterBase):
     def convertMaterial( self, material: imMaterialInfo, context, materialName: str ):
         bpy_material = bpy.data.materials.new(name=materialName)
         bpy_material.use_nodes = True
-
         if material is not None and not hasattr( material, 'getUVChannelForSlot' ):
             self.logger.warning(
                 f"material '{materialName}' has no mrl entry, importing untextured" )
