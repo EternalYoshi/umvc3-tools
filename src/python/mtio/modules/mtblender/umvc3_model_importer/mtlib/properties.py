@@ -83,6 +83,11 @@ class UMVC3ModelImportProperties(PropertyGroup):
         description='Converts Material to .YML',
         default=True,
     ) 
+    import_toon_shading: BoolProperty(
+        name='Build Toon Shader',
+        description='Wire the MT toon ramp into the material instead of a plain Principled BSDF. Uses Shader to RGB, which is Eevee only, so leave this off if you render in Cycles',
+        default=False,
+    )
     inherit_scale: BoolProperty(
         name='Inherit Scale',
         description='Enables child bones to inherit scale of parents in animations. Recommended to leave unchecked or false if model is to be used for animation',

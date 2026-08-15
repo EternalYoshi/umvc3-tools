@@ -483,6 +483,94 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.debug( 'could not set up uv scroll: ' + str( e ) )
 
 
+    def _wantsToonShading( self, context ):
+        try:
+            return bool( context.scene.sub_scene_properties.import_toon_shading )
+        except Exception:
+            return False
+
+    def _buildToonShader( self, bpy_material, nodes, principled, albedo_tex, ramp_tex, material ):
+        try:
+            links = bpy_material.node_tree.links
+            out = nodes.get( 'Material Output' )
+            if out is None:
+                for n in nodes:
+                    if n.bl_idname == 'ShaderNodeOutputMaterial':
+                        out = n
+                        break
+            if out is None:
+                return
+
+            hl = material.getHalfLambert() or ( 0.5, 0.5 )
+            bias, scale = float( hl[0] ), float( hl[1] )
+            bpy_material['CBHalfLambertBias']  = bias
+            bpy_material['CBHalfLambertScale'] = scale
+
+            # a plain diffuse term, converted to a scalar we can use as a lookup
+            diffuse = nodes.new( 'ShaderNodeBsdfDiffuse' )
+            diffuse.location = ( -1400, -600 )
+            diffuse.inputs['Color'].default_value = ( 1, 1, 1, 1 )
+
+            to_rgb = nodes.new( 'ShaderNodeShaderToRGB' )
+            to_rgb.location = ( -1200, -600 )
+            links.new( diffuse.outputs['BSDF'], to_rgb.inputs['Shader'] )
+
+            # bias and scale the lambert term into the ramp's 0..1 range
+            mad = nodes.new( 'ShaderNodeMapRange' )
+            mad.location = ( -1000, -600 )
+            mad.label = 'half lambert'
+            mad.clamp = True
+            links.new( to_rgb.outputs['Color'], mad.inputs['Value'] )
+            mad.inputs['From Min'].default_value = 0.0
+            mad.inputs['From Max'].default_value = 1.0
+            mad.inputs['To Min'].default_value = max( 0.0, min( 1.0, bias - scale * 0.5 ) )
+            mad.inputs['To Max'].default_value = max( 0.0, min( 1.0, bias + scale * 0.5 ) )
+
+            # sample the ramp along u, v is arbitrary on a 512x1 texture
+            combine = nodes.new( 'ShaderNodeCombineXYZ' )
+            combine.location = ( -800, -600 )
+            links.new( mad.outputs['Result'], combine.inputs['X'] )
+            combine.inputs['Y'].default_value = 0.5
+
+            ramp_tex.location = ( -600, -600 )
+            links.new( combine.outputs['Vector'], ramp_tex.inputs['Vector'] )
+
+            # albedo tinted by the ramp
+            mix = nodes.new( 'ShaderNodeMixRGB' )
+            mix.blend_type = 'MULTIPLY'
+            mix.location = ( -300, -500 )
+            mix.inputs['Fac'].default_value = 1.0
+            if albedo_tex is not None:
+                links.new( albedo_tex.outputs['Color'], mix.inputs['Color1'] )
+            else:
+                mix.inputs['Color1'].default_value = ( 0.8, 0.8, 0.8, 1 )
+            links.new( ramp_tex.outputs['Color'], mix.inputs['Color2'] )
+
+            emit = nodes.new( 'ShaderNodeEmission' )
+            emit.location = ( -100, -500 )
+            links.new( mix.outputs['Color'], emit.inputs['Color'] )
+
+            # alpha materials keep their transparency
+            if material.isAlphaBlended() and albedo_tex is not None:
+                trans = nodes.new( 'ShaderNodeBsdfTransparent' )
+                trans.location = ( -100, -700 )
+                blend = nodes.new( 'ShaderNodeMixShader' )
+                blend.location = ( 100, -550 )
+                links.new( albedo_tex.outputs['Alpha'], blend.inputs['Fac'] )
+                links.new( trans.outputs['BSDF'], blend.inputs[1] )
+                links.new( emit.outputs['Emission'], blend.inputs[2] )
+                links.new( blend.outputs['Shader'], out.inputs['Surface'] )
+            else:
+                links.new( emit.outputs['Emission'], out.inputs['Surface'] )
+
+            principled.location = ( -300, 400 )
+            principled.label = 'Principled (unused, relink to revert)'
+
+            self.logger.info(
+                f'toon shader on {bpy_material.name}: bias {bias:.3f} scale {scale:.3f}' )
+        except Exception as e:
+            self.logger.warning( 'could not build toon shader: ' + str( e ) )
+
     def _applyMaterialState( self, bpy_material, material ):
         '''Blend and raster state map straight onto blender material settings and
         matter more visually than people expect.'''
@@ -513,6 +601,7 @@ class BlenderModelImporter(ModelImporterBase):
             nodes = bpy_material.node_tree.nodes
             principled_bsdf = nodes.get("Principled BSDF") or nodes.new("ShaderNodeBsdfPrincipled")
 
+            albedo_tex = None
             albedo_map = self.loadTextureSlot(material, "tAlbedoMap", context)
             if albedo_map:
                 albedo_tex = nodes.new("ShaderNodeTexImage")
@@ -623,9 +712,7 @@ class BlenderModelImporter(ModelImporterBase):
                 except Exception as e:
                     self.logger.debug( 'could not wire tAlbedoBlendMap: ' + str( e ) )
 
-            # Toon ramps. MT uses these for cel shading, which blender has no direct
-            # equivalent for, so load them unconnected rather than guessing at a graph
-            # and getting it wrong. They are there to look at and to hand edit.
+            toon_nodes = {}
             for slot, yoff in ( ( 'tToonMap', 1200 ), ( 'tToonRevMap', 1000 ) ):
                 toon_img = self.loadTextureSlot( material, slot, context )
                 if toon_img:
@@ -634,6 +721,19 @@ class BlenderModelImporter(ModelImporterBase):
                     toon_tex.location.x = -400
                     toon_tex.location.y = yoff
                     toon_tex.label = slot
+                    # a lookup ramp, not a colour texture
+                    try:
+                        toon_tex.image.colorspace_settings.name = 'Non-Color'
+                        toon_tex.extension = 'EXTEND'
+                        toon_tex.interpolation = 'Linear'
+                    except Exception:
+                        pass
+                    toon_nodes[slot] = toon_tex
+
+            if toon_nodes.get( 'tToonMap' ) is not None and self._wantsToonShading( context ):
+                self._buildToonShader( bpy_material, nodes, principled_bsdf,
+                                       albedo_tex,
+                                       toon_nodes['tToonMap'], material )
 
             # CBHalfLambert drives the toon ramp lookup and varies per material,
             # 7 distinct pairs across Dante's 25. Stash it so it isn't lost.

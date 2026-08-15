@@ -100,6 +100,8 @@ class SUB_PT_Model_Import(Panel):
 
         row = layout.row(align=True)
         row.prop(mip, 'convert_mrl_to_yml',text='Convert MRL(Material) to YML')
+        row = layout.row(align=True)
+        row.prop(mip, 'import_toon_shading',text='Build Toon Shader (Eevee)')
 
         row = layout.row(align=True)
         row.prop(mip, 'create_layer',text='Create Layer')
