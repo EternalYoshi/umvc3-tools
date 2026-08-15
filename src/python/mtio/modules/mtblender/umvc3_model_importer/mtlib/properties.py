@@ -258,3 +258,8 @@ class UMVC3ModelImportProperties(PropertyGroup):
         description='Sets the imported Models Armature to display its bones in front',
         default=True,
     )
+    material_to_filter_by: bpy.props.PointerProperty(
+        name="Material",
+        description='The Material to Filter Selection to.',
+        type=bpy.types.Material,
+    )

@@ -112,7 +112,15 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
                 if ChosenBone == None:
                     row.label(text="Select a bone in pose mode.")  
         else:
-            row.label(text="Select a primitive, joint, or group object first.")        
+            row.label(text="Select a primitive, joint, or group object first.")
+
+        #Material Selector for later.
+        layout.separator()
+        row = layout.row(align=True)
+        layout.prop(mip, "material_to_filter_by", text="Material")   
+        layout.separator()
+        row = layout.row(align=True)        
+        row.operator('sub.mod_op_select_objects_by_material', text = 'Select Objects By Material')         
 
 class SUB_OP_ADD_MT_ATTRIBUTES(bpy.types.Operator):
     bl_idname = 'sub.mod_op_add_mt_attributes'
@@ -307,6 +315,33 @@ class SUB_OP_CLEANUP_VERTEX_GROUPS(bpy.types.Operator):
             for vertex_group in list(obj.vertex_groups):
                 if vertex_group.name not in RelevantBoneNames:
                     obj.vertex_groups.remove(vertex_group)
+
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
+        return {'FINISHED'}
+
+class SUB_OP_SELECT_OBJECTS_BY_MATERIAL(bpy.types.Operator):
+    bl_idname = 'sub.mod_op_select_objects_by_material'
+    bl_label = "Select Objects By Material"
+
+    def execute(self, context):
+        #Gets the material and checks if it is valid.
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
+        material = mip.material_to_filter_by
+
+        print(material.name)
+
+        if material is None:
+            self.report({'WARNING'}, "There's no material here. Select one first.")
+            return {'CANCELLED'}
+
+        #Deselects Everything else.
+        bpy.context.active_object.select_set(False)
+
+        #Checks each object based on material and only selects the objects that are using said material.
+        for obj in bpy.context.scene.objects:
+            if obj.type == 'MESH':
+                if material in obj.data.materials[:]:
+                    obj.select_set(True)
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)        
         return {'FINISHED'}
