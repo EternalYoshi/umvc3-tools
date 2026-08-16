@@ -63,6 +63,7 @@ class PrimitiveCustomAttributeData:
 @dataclass(frozen=False,init=False)
 class MaterialCustomAttributeData:
     type: str
+    blendState: str
     depthStencilState: str
     rasterizerState: str
     cmdListFlags: int
@@ -268,6 +269,7 @@ class ModelExporterBase(ABC):
         # Read back the MT material state the importer stashed on the editor material.
         data = MaterialCustomAttributeData()
         data.type = None
+        data.blendState = None
         data.depthStencilState = None
         data.rasterizerState = None
         data.cmdListFlags = None
@@ -276,6 +278,7 @@ class ModelExporterBase(ABC):
         attribs = self.getEditorMaterialCustomAttributeData( material )
         if attribs != None:
             data.type = attribs.type
+            data.blendState = attribs.blendState
             data.depthStencilState = attribs.depthStencilState
             data.rasterizerState = attribs.rasterizerState
             data.cmdListFlags = _tryParseInt(attribs.cmdListFlags, base=0)
@@ -287,6 +290,7 @@ class ModelExporterBase(ABC):
         if materialInstance == None or data == None:
             return materialInstance
         if data.type != None: materialInstance.type = data.type
+        if data.blendState != None: materialInstance.blendState = data.blendState
         if data.depthStencilState != None: materialInstance.depthStencilState = data.depthStencilState
         if data.rasterizerState != None: materialInstance.rasterizerState = data.rasterizerState
         if data.cmdListFlags != None: materialInstance.cmdListFlags = data.cmdListFlags

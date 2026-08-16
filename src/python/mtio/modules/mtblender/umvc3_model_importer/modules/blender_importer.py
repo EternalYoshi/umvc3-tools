@@ -457,24 +457,50 @@ class BlenderModelImporter(ModelImporterBase):
             speed = self.UV_SCROLL_BASE_SPEED * ( self.UV_SCROLL_REFERENCE_RATE / float( rate ) )
 
             u, v = anim['direction']
-            bpy_material['UVScrollSpeed'] = speed
-            bpy_material['UVScrollU']     = float( u )
-            bpy_material['UVScrollV']     = float( v )
-            bpy_material['UVScrollRate']  = int( anim['rate'] )
 
-            # one driver per axis, so a material can scroll diagonally if it wants to
-            for axis, prop in ( ( 0, 'UVScrollU' ), ( 1, 'UVScrollV' ) ):
-                drv = mapping.inputs['Location'].driver_add( 'default_value', axis ).driver
-                drv.type = 'SCRIPTED'
-                a = drv.variables.new(); a.name = 'spd'
-                a.targets[0].id_type = 'MATERIAL'
-                a.targets[0].id = bpy_material
-                a.targets[0].data_path = '["UVScrollSpeed"]'
-                b = drv.variables.new(); b.name = 'dir'
-                b.targets[0].id_type = 'MATERIAL'
-                b.targets[0].id = bpy_material
-                b.targets[0].data_path = '["%s"]' % prop
-                drv.expression = 'frame * spd * dir'
+            # Speed and direction live as nodes in the graph, not as custom properties,
+            # so they can be tuned in the shader editor with the viewport updating live.
+            spd_node = nodes.new( 'ShaderNodeValue' )
+            spd_node.location = ( mapping.location.x - 400, mapping.location.y - 200 )
+            spd_node.label = 'UV scroll speed'
+            spd_node.name = 'UV scroll speed'
+            spd_node.outputs[0].default_value = float( speed )
+
+            dir_node = nodes.new( 'ShaderNodeCombineXYZ' )
+            dir_node.location = ( mapping.location.x - 400, mapping.location.y - 330 )
+            dir_node.label = 'UV scroll direction'
+            dir_node.name = 'UV scroll direction'
+            dir_node.inputs['X'].default_value = float( u )
+            dir_node.inputs['Y'].default_value = float( v )
+
+            # frame is the one thing that has to be a driver, so it drives a single
+            # Value node that the graph multiplies against.
+            time_node = nodes.new( 'ShaderNodeValue' )
+            time_node.location = ( mapping.location.x - 400, mapping.location.y - 70 )
+            time_node.label = 'frame'
+            time_node.name = 'frame'
+            try:
+                d = time_node.outputs[0].driver_add( 'default_value' ).driver
+                d.type = 'SCRIPTED'
+                d.expression = 'frame'
+            except Exception:
+                pass
+
+            step = nodes.new( 'ShaderNodeVectorMath' )
+            step.operation = 'SCALE'
+            step.location = ( mapping.location.x - 220, mapping.location.y - 260 )
+            step.label = 'direction * speed'
+            links.new( dir_node.outputs['Vector'], step.inputs[0] )
+            links.new( spd_node.outputs[0], step.inputs['Scale'] )
+
+            offset = nodes.new( 'ShaderNodeVectorMath' )
+            offset.operation = 'SCALE'
+            offset.location = ( mapping.location.x - 220, mapping.location.y - 120 )
+            offset.label = 'x frame'
+            links.new( step.outputs['Vector'], offset.inputs[0] )
+            links.new( time_node.outputs[0], offset.inputs['Scale'] )
+
+            links.new( offset.outputs['Vector'], mapping.inputs['Location'] )
 
             self.logger.info(
                 f"uv scroll on {bpy_material.name}: channel {anim['channel']}, "
@@ -531,19 +557,17 @@ class BlenderModelImporter(ModelImporterBase):
             mad.inputs['To Min'].default_value = toMin
             mad.inputs['To Max'].default_value = toMax
 
-            for socket, prop, val in ( ( 'To Min', 'ToonRampStart', toMin ),
-                                       ( 'To Max', 'ToonRampEnd',   toMax ) ):
-                bpy_material[prop] = float( val )
-                try:
-                    d = mad.inputs[socket].driver_add( 'default_value' ).driver
-                    d.type = 'SCRIPTED'
-                    v = d.variables.new(); v.name = 'p'
-                    v.targets[0].id_type = 'MATERIAL'
-                    v.targets[0].id = bpy_material
-                    v.targets[0].data_path = '["%s"]' % prop
-                    d.expression = 'p'
-                except Exception:
-                    pass
+            # Every mrl number gets its own labelled node so it can be edited in the
+            # shader editor and the viewport updates as you drag it. Custom properties
+            # live in a different panel and are the wrong place to tune shading from.
+            for socket, label, val, ypos in ( ( 'To Min', 'CBHalfLambert bias',  toMin, -520 ),
+                                              ( 'To Max', 'CBHalfLambert bias+scale', toMax, -620 ) ):
+                vnode = nodes.new( 'ShaderNodeValue' )
+                vnode.location = ( -1200, ypos )
+                vnode.label = label
+                vnode.name = label
+                vnode.outputs[0].default_value = float( val )
+                links.new( vnode.outputs[0], mad.inputs[socket] )
 
             # sample the ramp along u, v is arbitrary on a 512x1 texture
             combine = nodes.new( 'ShaderNodeCombineXYZ' )
@@ -572,18 +596,12 @@ class BlenderModelImporter(ModelImporterBase):
             floor.inputs['From Min'].default_value = 0.0
             floor.inputs['From Max'].default_value = 1.0
             floor.inputs['To Max'].default_value = 1.0
-            floor.inputs['To Min'].default_value = 0.2
-            bpy_material['ToonShadowFloor'] = 0.2
-            try:
-                d = floor.inputs['To Min'].driver_add( 'default_value' ).driver
-                d.type = 'SCRIPTED'
-                v = d.variables.new(); v.name = 'p'
-                v.targets[0].id_type = 'MATERIAL'
-                v.targets[0].id = bpy_material
-                v.targets[0].data_path = '["ToonShadowFloor"]'
-                d.expression = 'p'
-            except Exception:
-                pass
+            floor_val = nodes.new( 'ShaderNodeValue' )
+            floor_val.location = ( -650, -820 )
+            floor_val.label = 'shadow floor'
+            floor_val.name = 'shadow floor'
+            floor_val.outputs[0].default_value = 0.2
+            links.new( floor_val.outputs[0], floor.inputs['To Min'] )
 
             links.new( floor.outputs['Result'], mix.inputs['Color2'] )
 
@@ -604,13 +622,19 @@ class BlenderModelImporter(ModelImporterBase):
             if boost is not None:
                 factor = [ c * boost for c in factor ]
             if factor != [ 1.0, 1.0, 1.0 ]:
+                tint_rgb = nodes.new( 'ShaderNodeRGB' )
+                tint_rgb.location = ( -350, -300 )
+                tint_rgb.label = 'CBMaterial diffuse tint'
+                tint_rgb.name = 'CBMaterial diffuse tint'
+                tint_rgb.outputs[0].default_value = ( factor[0], factor[1], factor[2], 1.0 )
+
                 tint_node = nodes.new( 'ShaderNodeMixRGB' )
                 tint_node.blend_type = 'MULTIPLY'
                 tint_node.location = ( -150, -400 )
                 tint_node.label = 'CBMaterial tint'
                 tint_node.inputs['Fac'].default_value = 1.0
-                tint_node.inputs['Color2'].default_value = ( factor[0], factor[1], factor[2], 1.0 )
                 links.new( mix.outputs['Color'], tint_node.inputs['Color1'] )
+                links.new( tint_rgb.outputs[0], tint_node.inputs['Color2'] )
                 tinted = tint_node.outputs['Color']
             else:
                 tinted = mix.outputs['Color']

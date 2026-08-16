@@ -512,6 +512,49 @@ class ModelImporterBase(ABC):
         attribs.rasterizerState = material.rasterizerState
         attribs.cmdListFlags = hex( material.cmdListFlags )
         attribs.matFlags = hex( material.matFlags )
+        # blendState was never stored, so alpha materials looked identical to opaque
+        # ones once imported
+        attribs.blendState = material.blendState
+
+        try:
+            self.setMaterialCommandAttributes( editorMaterial, material )
+        except Exception as e:
+            self.logger.debug( 'could not mirror mrl commands: ' + str( e ) )
+
+    def setMaterialCommandAttributes( self, editorMaterial, material: imMaterialInfo ):
+        target = editorMaterial.unwrap() if hasattr( editorMaterial, 'unwrap' ) else editorMaterial
+        if target is None:
+            return
+
+        prefixes = { 'texture': 'tex_', 'flag': 'flag_', 'cbuffer': 'cb_',
+                     'samplerstate': 'smp_' }
+        for cmd in material.cmds:
+            prefix = prefixes.get( cmd.type )
+            if prefix is None:
+                continue
+            key = prefix + str( cmd.name )
+            data = cmd.data
+            try:
+                if isinstance( data, ( list, tuple ) ):
+                    target[ key ] = [ float( x ) for x in data ]
+                elif isinstance( data, ( int, float ) ):
+                    target[ key ] = data
+                else:
+                    target[ key ] = str( data )
+            except Exception:
+                target[ key ] = str( data )
+
+        # animData is a binary blob, so record what is useful about it rather than
+        # dumping bytes into the ui. The exporter keeps the real thing.
+        if material.animData:
+            target['animData_bytes'] = len( material.animData )
+            anim = material.getUVAnimation()
+            if anim is not None:
+                target['animData_channel']   = anim['channel']
+                target['animData_scrollU']   = float( anim['direction'][0] )
+                target['animData_scrollV']   = float( anim['direction'][1] )
+                target['animData_rate']      = int( anim['rate'] )
+
 
     def setPrimitiveCustomAttributes( self, primitive, shaderInfo, editorMesh, envelopeIndex ):
         attribs = self.createPrimitiveCustomAttribute( editorMesh )
