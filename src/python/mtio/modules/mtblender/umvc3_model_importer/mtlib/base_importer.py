@@ -512,8 +512,8 @@ class ModelImporterBase(ABC):
         attribs.rasterizerState = material.rasterizerState
         attribs.cmdListFlags = hex( material.cmdListFlags )
         attribs.matFlags = hex( material.matFlags )
-        # blendState was never stored, so alpha materials looked identical to opaque
-        # ones once imported
+        # needed on export to tell an alpha material from an opaque one; the rest of
+        # the mrl is surfaced as nodes in the shader editor instead of as properties
         attribs.blendState = material.blendState
 
         try:
@@ -522,6 +522,15 @@ class ModelImporterBase(ABC):
             self.logger.debug( 'could not mirror mrl commands: ' + str( e ) )
 
     def setMaterialCommandAttributes( self, editorMaterial, material: imMaterialInfo ):
+        '''Mirror the rest of the mrl entry onto the material as custom properties.
+        The numbers that drive shading are inputs on the MT Character group instead;
+        this is the reference copy, so nothing in the file is lost on import.
+
+            tex_<slot>   texture path
+            flag_<name>  feature flag value
+            cb_<name>    constant buffer
+            smp_<name>   sampler state
+        '''
         target = editorMaterial.unwrap() if hasattr( editorMaterial, 'unwrap' ) else editorMaterial
         if target is None:
             return
@@ -544,17 +553,15 @@ class ModelImporterBase(ABC):
             except Exception:
                 target[ key ] = str( data )
 
-        # animData is a binary blob, so record what is useful about it rather than
-        # dumping bytes into the ui. The exporter keeps the real thing.
+        # animData is binary, so record what is readable rather than dumping bytes
         if material.animData:
             target['animData_bytes'] = len( material.animData )
             anim = material.getUVAnimation()
             if anim is not None:
-                target['animData_channel']   = anim['channel']
-                target['animData_scrollU']   = float( anim['direction'][0] )
-                target['animData_scrollV']   = float( anim['direction'][1] )
-                target['animData_rate']      = int( anim['rate'] )
-
+                target['animData_channel'] = anim['channel']
+                target['animData_scrollU'] = float( anim['direction'][0] )
+                target['animData_scrollV'] = float( anim['direction'][1] )
+                target['animData_rate']    = int( anim['rate'] )
 
     def setPrimitiveCustomAttributes( self, primitive, shaderInfo, editorMesh, envelopeIndex ):
         attribs = self.createPrimitiveCustomAttribute( editorMesh )

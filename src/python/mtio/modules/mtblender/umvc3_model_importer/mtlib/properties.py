@@ -84,8 +84,8 @@ class UMVC3ModelImportProperties(PropertyGroup):
         default=True,
     ) 
     import_toon_shading: BoolProperty(
-        name='Build Toon Shader',
-        description='Wire the MT toon ramp into the material instead of a plain Principled BSDF. Uses Shader to RGB, which is Eevee only, so leave this off if you render in Cycles',
+        name='Use Toon Ramp',
+        description='Drive the MT Character shader with the toon ramp textures. To be used for rendering.',
         default=False,
     )
     inherit_scale: BoolProperty(
