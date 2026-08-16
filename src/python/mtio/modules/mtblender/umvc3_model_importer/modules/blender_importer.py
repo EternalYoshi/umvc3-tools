@@ -130,6 +130,11 @@ class BlenderModelImporter(ModelImporterBase):
         
         mesh = bpy.data.meshes.new(mesh_name+'.mesh')
         obj = bpy.data.objects.new(mesh_name, mesh)
+        # collected so the outline pass knows exactly what this import made, rather
+        # than guessing from the selection
+        if not hasattr( self, 'importedMeshObjects' ):
+            self.importedMeshObjects = []
+        self.importedMeshObjects.append( obj )
         obj.data.materials.append(self.editorMaterialArray[primitive.indices.getMaterialIndex()].unwrap())
         self.setPrimitiveCustomAttributes( primitive, shaderInfo, BlenderNodeProxy(obj), envelopeIndex )
         if self.layer != None:
@@ -1171,5 +1176,89 @@ class BlenderModelImporter(ModelImporterBase):
         # bone = self.armature.bones.get(obj.getName())
         return BlenderCustomAttributeSetProxy(bone)
 
+    # ------------------------------------------------------------------
+    # Ink outline
+    # ------------------------------------------------------------------
+    #
+    # The shader package carries VS_MaterialOutline / PS_MaterialOutline / TMaterialOutline
+    # plus maskOutlineGeometry, so the game draws the contour as a geometry pass rather
+    # than only as a screen space filter. None of the mrls reference outlines, which fits:
+    # it is driven globally by the uOutlineFilter units in the stage sdl.
+    #
+    # The blender equivalent of that pass is an inverted hull. A Solidify modifier pushes
+    # a shell outwards with flipped normals, and the outline material culls backfaces so
+    # only the shell's inside shows, which reads as a line around the silhouette.
+
+    OUTLINE_MATERIAL_NAME = 'MT Outline'
+
+    def _getOrBuildOutlineMaterial( self ):
+        mat = bpy.data.materials.get( self.OUTLINE_MATERIAL_NAME )
+        if mat is not None:
+            return mat
+        mat = bpy.data.materials.new( name=self.OUTLINE_MATERIAL_NAME )
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        for n in list( nodes ):
+            if n.bl_idname != 'ShaderNodeOutputMaterial':
+                nodes.remove( n )
+        out = nodes[0]
+        emit = nodes.new( 'ShaderNodeEmission' )
+        emit.location = ( -200, 0 )
+        emit.inputs['Color'].default_value = ( 0.0, 0.0, 0.0, 1.0 )
+        emit.inputs['Strength'].default_value = 1.0
+        links.new( emit.outputs['Emission'], out.inputs['Surface'] )
+        # showing only the inside of the shell is what makes it a line and not a blob
+        mat.use_backface_culling = True
+        try:
+            mat.shadow_method = 'NONE'
+        except Exception:
+            pass
+        self.logger.info( f'built the {self.OUTLINE_MATERIAL_NAME} material' )
+        return mat
+
+    def _addOutline( self, obj, thickness ):
+        try:
+            if obj is None or obj.type != 'MESH':
+                return
+            if any( m.type == 'SOLIDIFY' and m.name == 'MT Outline' for m in obj.modifiers ):
+                return
+
+            mat = self._getOrBuildOutlineMaterial()
+            if mat.name not in [ s.name for s in obj.data.materials if s ]:
+                obj.data.materials.append( mat )
+            slot = len( obj.data.materials ) - 1
+
+            mod = obj.modifiers.new( name='MT Outline', type='SOLIDIFY' )
+            mod.thickness = float( thickness )
+            mod.offset = 1.0
+            mod.use_flip_normals = True
+            mod.use_rim = False
+            mod.material_offset = slot
+            mod.material_offset_rim = slot
+            # a uniform shell reads better than one that thins at tight corners
+            mod.use_even_offset = True
+            mod.thickness_clamp = 0.0
+        except Exception as e:
+            self.logger.debug( f'could not add an outline to {getattr(obj,"name","?")}: {e}' )
+
     def importModel(self, modFilePath, context):
         super().importModel(modFilePath, context)
+
+        try:
+            mip = context.scene.sub_scene_properties
+            if getattr( mip, 'import_outline', False ):
+                thickness = float( getattr( mip, 'outline_thickness', 0.45 ) )
+                count = 0
+                for obj in getattr( self, 'importedMeshObjects', [] ):
+                    self._addOutline( obj, thickness )
+                    count += 1
+                if count == 0:
+                    # fall back to whatever this import just created
+                    for obj in bpy.context.selected_objects:
+                        if obj.type == 'MESH':
+                            self._addOutline( obj, thickness )
+                            count += 1
+                self.logger.info( f'ink outline added to {count} meshes at {thickness} units' )
+        except Exception as e:
+            self.logger.debug( 'could not add outlines: ' + str( e ) )

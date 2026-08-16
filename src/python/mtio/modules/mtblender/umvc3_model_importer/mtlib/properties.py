@@ -83,9 +83,21 @@ class UMVC3ModelImportProperties(PropertyGroup):
         description='Converts Material to .YML',
         default=True,
     ) 
+    import_outline: BoolProperty(
+        name='Add Ink Outline (EXPERIMENTAL)',
+        description='Add the black contour line the game draws around characters. Recreated in Blender with a solidify modifier and a black material.',
+        default=False,
+    )
+    outline_thickness: FloatProperty(
+        name='Outline Thickness (EXPERIMENTAL)',
+        description='In model units. Characters are around 260 units tall, so the default suits them; scale it up for larger models',
+        default=0.45,
+        min=0.0,
+        max=20.0,
+    )
     import_toon_shading: BoolProperty(
-        name='Use Toon Ramp',
-        description='Drive the MT Character shader with the toon ramp textures. To be used for rendering.',
+        name='Use Toon Ramp (EXPERIMENTAL)',
+        description='Drive the MT Character shader with the toon ramp textures.',
         default=False,
     )
     inherit_scale: BoolProperty(

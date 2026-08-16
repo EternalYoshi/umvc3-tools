@@ -102,6 +102,10 @@ class SUB_PT_Model_Import(Panel):
         row.prop(mip, 'convert_mrl_to_yml',text='Convert MRL(Material) to YML')
         row = layout.row(align=True)
         row.prop(mip, 'import_toon_shading',text='Use Toon Ramp (Eevee)')
+        row = layout.row(align=True)
+        row.prop(mip, 'import_outline',text='Add Ink Outline')
+        row = layout.row(align=True)
+        row.prop(mip, 'outline_thickness')
 
         row = layout.row(align=True)
         row.prop(mip, 'create_layer',text='Create Layer')
