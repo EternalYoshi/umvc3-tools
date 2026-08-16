@@ -447,6 +447,31 @@ class imMaterialInfo(object):
                 return cmd.data
         return None
 
+    def getDiffuseTint( self ):
+        v = self.getCBuffer( 'CBMaterial' )
+        if v is None or len( v ) < 3:
+            return None
+        return ( float( v[0] ), float( v[1] ), float( v[2] ) )
+
+    def getSpecularTint( self ):
+        v = self.getCBuffer( 'CBMaterial' )
+        if v is None or len( v ) < 7:
+            return None
+        return ( float( v[4] ), float( v[5] ), float( v[6] ) )
+
+    def getSpecularPower( self ):
+        v = self.getCBuffer( 'CBMaterial' )
+        if v is None or len( v ) < 8:
+            return None
+        return float( v[7] )
+
+    def getDiffuseColorCorrect( self ):
+        '''A flat albedo multiplier, 1.22 on every material seen that has it.'''
+        v = self.getCBuffer( 'CBDiffuseColorCorect' )
+        if v is None or len( v ) < 1:
+            return None
+        return float( v[0] )
+
     def getHalfLambert( self ):
         '''CBHalfLambert is (bias, scale, 0, 0) and drives the toon ramp lookup.
         Dante ships 7 distinct pairs across 25 materials, so it is genuinely per

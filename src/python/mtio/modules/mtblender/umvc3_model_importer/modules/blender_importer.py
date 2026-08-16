@@ -523,8 +523,27 @@ class BlenderModelImporter(ModelImporterBase):
             links.new( to_rgb.outputs['Color'], mad.inputs['Value'] )
             mad.inputs['From Min'].default_value = 0.0
             mad.inputs['From Max'].default_value = 1.0
-            mad.inputs['To Min'].default_value = max( 0.0, min( 1.0, bias - scale * 0.5 ) )
-            mad.inputs['To Max'].default_value = max( 0.0, min( 1.0, bias + scale * 0.5 ) )
+            # Half lambert is NdotL * scale + bias, so at NdotL = 0 the lookup sits at
+            # bias and at 1 it sits at bias + scale. Centring on bias put the unlit half
+            # below u = 0.5, where every ramp is flat black, which masked Dante's face.
+            toMin = max( 0.0, min( 1.0, bias ) )
+            toMax = max( 0.0, min( 1.0, bias + scale ) )
+            mad.inputs['To Min'].default_value = toMin
+            mad.inputs['To Max'].default_value = toMax
+
+            for socket, prop, val in ( ( 'To Min', 'ToonRampStart', toMin ),
+                                       ( 'To Max', 'ToonRampEnd',   toMax ) ):
+                bpy_material[prop] = float( val )
+                try:
+                    d = mad.inputs[socket].driver_add( 'default_value' ).driver
+                    d.type = 'SCRIPTED'
+                    v = d.variables.new(); v.name = 'p'
+                    v.targets[0].id_type = 'MATERIAL'
+                    v.targets[0].id = bpy_material
+                    v.targets[0].data_path = '["%s"]' % prop
+                    d.expression = 'p'
+                except Exception:
+                    pass
 
             # sample the ramp along u, v is arbitrary on a 512x1 texture
             combine = nodes.new( 'ShaderNodeCombineXYZ' )
@@ -544,11 +563,61 @@ class BlenderModelImporter(ModelImporterBase):
                 links.new( albedo_tex.outputs['Color'], mix.inputs['Color1'] )
             else:
                 mix.inputs['Color1'].default_value = ( 0.8, 0.8, 0.8, 1 )
-            links.new( ramp_tex.outputs['Color'], mix.inputs['Color2'] )
+            # Nothing in game goes fully black, there is always ambient underneath.
+            floor = nodes.new( 'ShaderNodeMapRange' )
+            floor.location = ( -450, -700 )
+            floor.label = 'shadow floor'
+            floor.clamp = True
+            links.new( ramp_tex.outputs['Color'], floor.inputs['Value'] )
+            floor.inputs['From Min'].default_value = 0.0
+            floor.inputs['From Max'].default_value = 1.0
+            floor.inputs['To Max'].default_value = 1.0
+            floor.inputs['To Min'].default_value = 0.2
+            bpy_material['ToonShadowFloor'] = 0.2
+            try:
+                d = floor.inputs['To Min'].driver_add( 'default_value' ).driver
+                d.type = 'SCRIPTED'
+                v = d.variables.new(); v.name = 'p'
+                v.targets[0].id_type = 'MATERIAL'
+                v.targets[0].id = bpy_material
+                v.targets[0].data_path = '["ToonShadowFloor"]'
+                d.expression = 'p'
+            except Exception:
+                pass
+
+            links.new( floor.outputs['Result'], mix.inputs['Color2'] )
+
+            # MT's ramp is the whole lighting model, there is no separate shadow pass.
+            # Leaving blender's shadowing on stamps a hard black band under the jaw
+            # where the head self shadows, which the game does not have.
+            try:
+                bpy_material.shadow_method = 'NONE'
+            except Exception:
+                pass
+
+            # diffuse tint and the flat albedo correction, both straight out of the mrl
+            tint = material.getDiffuseTint()
+            boost = material.getDiffuseColorCorrect()
+            factor = [ 1.0, 1.0, 1.0 ]
+            if tint is not None:
+                factor = [ tint[0], tint[1], tint[2] ]
+            if boost is not None:
+                factor = [ c * boost for c in factor ]
+            if factor != [ 1.0, 1.0, 1.0 ]:
+                tint_node = nodes.new( 'ShaderNodeMixRGB' )
+                tint_node.blend_type = 'MULTIPLY'
+                tint_node.location = ( -150, -400 )
+                tint_node.label = 'CBMaterial tint'
+                tint_node.inputs['Fac'].default_value = 1.0
+                tint_node.inputs['Color2'].default_value = ( factor[0], factor[1], factor[2], 1.0 )
+                links.new( mix.outputs['Color'], tint_node.inputs['Color1'] )
+                tinted = tint_node.outputs['Color']
+            else:
+                tinted = mix.outputs['Color']
 
             emit = nodes.new( 'ShaderNodeEmission' )
             emit.location = ( -100, -500 )
-            links.new( mix.outputs['Color'], emit.inputs['Color'] )
+            links.new( tinted, emit.inputs['Color'] )
 
             # alpha materials keep their transparency
             if material.isAlphaBlended() and albedo_tex is not None:
@@ -742,6 +811,20 @@ class BlenderModelImporter(ModelImporterBase):
                 bpy_material['CBHalfLambert'] = [ hl[0], hl[1] ]
 
             #Light Maps. tOcclusionMap
+            # specular tint and power feed the principled path; the toon path uses the
+            # ramp for shading so they only matter here.
+            try:
+                spec = material.getSpecularTint()
+                if spec is not None and hasattr( principled_bsdf.inputs, '__contains__' ):
+                    if 'Specular Tint' in principled_bsdf.inputs:
+                        st = principled_bsdf.inputs['Specular Tint']
+                        if len( getattr( st, 'default_value', [] ) ) >= 3:
+                            st.default_value = ( spec[0], spec[1], spec[2], 1.0 )
+                bpy_material['CBMaterialSpecularTint']  = list( spec ) if spec else None
+                bpy_material['CBMaterialSpecularPower'] = material.getSpecularPower()
+            except Exception as e:
+                self.logger.debug( 'could not apply specular tint: ' + str( e ) )
+
             self._applyMaterialState( bpy_material, material )
 
             light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
