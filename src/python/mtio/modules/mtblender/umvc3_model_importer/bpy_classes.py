@@ -5,6 +5,7 @@ from .mtlib import properties
 classes = [
     #modules.blender_plugin,
     modules.model_import.SUB_PT_Model_Import,    
+    modules.model_import.SUB_PT_Model_Import_Rendering,
     modules.model_import.SUB_PT_MOD_OT_import,
     modules.model_import.SUB_OP_MOD_ImportModelPath,
     modules.model_import.SUB_PT_MOD_OT_Choose_Metadata_YML,

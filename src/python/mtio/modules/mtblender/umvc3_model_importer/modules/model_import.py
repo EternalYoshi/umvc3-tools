@@ -31,6 +31,7 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
 class SUB_PT_Model_Import(Panel):
+    bl_idname = 'SUB_PT_Model_Import'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'    
     bl_context = "objectmode"
@@ -100,15 +101,9 @@ class SUB_PT_Model_Import(Panel):
 
         row = layout.row(align=True)
         row.prop(mip, 'convert_mrl_to_yml',text='Convert MRL(Material) to YML')
-        row = layout.row(align=True)
-        row.prop(mip, 'import_toon_shading',text='Use Toon Ramp (Eevee)')
-        row = layout.row(align=True)
-        row.prop(mip, 'import_outline',text='Add Ink Outline')
-        row = layout.row(align=True)
-        row.prop(mip, 'outline_thickness')
 
         row = layout.row(align=True)
-        row.prop(mip, 'create_layer',text='Create Layer')
+        row.prop(mip, 'create_layer',text='Create Collection')
 
         row = layout.row(align=True)
         row.prop(mip, 'inherit_scale',text='Inherit Scale')
@@ -126,6 +121,30 @@ class SUB_PT_Model_Import(Panel):
 
         #all_requirements_met = True
         #min_requirements_met = True
+
+class SUB_PT_Model_Import_Rendering(Panel):
+    bl_idname = 'SUB_PT_Model_Import_Rendering'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_context = "objectmode"
+    bl_category = 'MT Framework'
+    bl_parent_id = 'SUB_PT_Model_Import'
+    bl_label = 'Rendering'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
+        layout = self.layout
+
+        row = layout.row(align=True)
+        row.prop(mip, 'import_toon_shading', text='Use Toon Ramp (Eevee)')
+
+        row = layout.row(align=True)
+        row.prop(mip, 'import_outline', text='Add Ink Outline')
+        row = layout.row(align=True)
+        row.enabled = mip.import_outline
+        row.prop(mip, 'outline_thickness')
+
 
 class SUB_OP_MOD_ImportModelPath(bpy.types.Operator, ImportHelper):
     """Import UMVC3 MT Framework *.mod model"""
@@ -215,7 +234,7 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Bake Scale Into Translation = ",mip.bake_scale)
         print("Convert Textures to DDS = ",mip.convert_tex_to_dds)
         print("Convert MRL(Material) to YML = ",mip.convert_mrl_to_yml)
-        print("Create Layer = ",mip.create_layer)
+        print("Create Collection = ",mip.create_layer)
         print("Make Child Bones Inherit Scale = ",mip.inherit_scale)
         newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.input_modelpath).split('.')[0] )
         print("Path Test:\n", newMetadataPath)

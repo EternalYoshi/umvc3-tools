@@ -895,28 +895,6 @@ class BlenderModelImporter(ModelImporterBase):
             factor = [ c * boost for c in factor ]
         return factor
 
-    def _applyDiffuseTint( self, bpy_material, nodes, source, material, x, y ):
-        """Insert a tint multiply after `source` and return the output to use. Returns
-        `source` untouched when the material has no tint, so the graph stays clean."""
-        factor = self._diffuseFactor( material )
-        if factor == [ 1.0, 1.0, 1.0 ]:
-            return source
-        rgb = nodes.new( 'ShaderNodeRGB' )
-        rgb.location = ( x - 200, y - 140 )
-        rgb.label = 'CBMaterial diffuse tint'
-        rgb.name = 'CBMaterial diffuse tint'
-        rgb.outputs[0].default_value = ( factor[0], factor[1], factor[2], 1.0 )
-
-        mul = nodes.new( 'ShaderNodeMixRGB' )
-        mul.blend_type = 'MULTIPLY'
-        mul.location = ( x, y )
-        mul.label = 'CBMaterial tint'
-        mul.inputs['Fac'].default_value = 1.0
-        links = bpy_material.node_tree.links
-        links.new( source, mul.inputs['Color1'] )
-        links.new( rgb.outputs[0], mul.inputs['Color2'] )
-        return mul.outputs['Color']
-
     def _applyMaterialState( self, bpy_material, material ):
         '''Blend and raster state map straight onto blender material settings and
         matter more visually than people expect.'''
@@ -956,10 +934,7 @@ class BlenderModelImporter(ModelImporterBase):
                 albedo_tex.image = albedo_map
                 albedo_tex.location.x = -900
                 albedo_tex.location.y = 300
-                base_out = self._applyDiffuseTint( bpy_material, nodes,
-                                                   albedo_tex.outputs["Color"],
-                                                   material, -450, 300 )
-                bpy_material.node_tree.links.new(base_out, principled_bsdf.inputs["Base Color"])
+                bpy_material.node_tree.links.new(albedo_tex.outputs["Color"], principled_bsdf.inputs["Base Color"])
                 self._attachUVChannel( bpy_material, nodes, albedo_tex, material, 'tAlbedoMap' )
 
                 # the albedo alpha channel is the transparency source when the
@@ -1084,13 +1059,17 @@ class BlenderModelImporter(ModelImporterBase):
             # The MT group is always built, because Principled cannot represent this
             # material model at all. The toggle only decides whether the toon ramp
             # drives the lighting or the group falls back to a plain lambert.
-            self._buildMTShader(
-                bpy_material, nodes, principled_bsdf, albedo_tex,
-                toon_nodes.get( 'tToonMap' ), material,
-                normal_out  = normal_map_node.outputs['Normal'] if normal_map_node else None,
-                spec_out    = metalness_tex.outputs['Color'] if metalness_tex else None,
-                rev_tex     = toon_nodes.get( 'tToonRevMap' ),
-                useToonRamp = self._wantsToonShading( context ) )
+            # Opt in only. With the Rendering options off an import is plain Principled,
+            # which is what rigging and export work wants: textures as authored, no
+            # tint, no brightness lift, nothing to undo.
+            if self._wantsToonShading( context ):
+                self._buildMTShader(
+                    bpy_material, nodes, principled_bsdf, albedo_tex,
+                    toon_nodes.get( 'tToonMap' ), material,
+                    normal_out  = normal_map_node.outputs['Normal'] if normal_map_node else None,
+                    spec_out    = metalness_tex.outputs['Color'] if metalness_tex else None,
+                    rev_tex     = toon_nodes.get( 'tToonRevMap' ),
+                    useToonRamp = True )
 
             # CBHalfLambert drives the toon ramp lookup and varies per material,
             # 7 distinct pairs across Dante's 25. Stash it so it isn't lost.
