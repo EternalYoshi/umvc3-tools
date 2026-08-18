@@ -3,7 +3,7 @@ version: 1
 name: Ryu
 joints:
   id, name:
-  - [1, character_root]
+  - [1, root]
   - [2, center_of_gravity]
   - [3, hip]
   - [4, waist]
