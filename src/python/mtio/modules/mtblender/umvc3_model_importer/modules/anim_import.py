@@ -1307,7 +1307,7 @@ class SUB_PT_Anim_Import(Panel):
             row.operator('sub.mod_op_add_joint_twofiftyfive', text = 'Add jnt_255 to Selected Armature')
             layout.separator()
             row = layout.row(align=True)
-            row.operator('sub.mod_op_add_simple_ik', text = 'Add Standard IKs Selected Armature')
+            row.operator('sub.mod_op_add_simple_ik', text = 'Add Standard IKs to Selected Armature')
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.op_select_relevant_joints_for_baking', text = 'Select Relevant Bones For Baking')
@@ -1316,6 +1316,7 @@ class SUB_PT_Anim_Import(Panel):
             row.operator(SUB_OP_anim_import.bl_idname, icon='IMPORT', text='Import Marvel 3 .yml Animation')
 
 class SUB_OP_anim_import(Operator, ImportHelper):
+    """Imports and applies the selected animation to the selected armature"""
     bl_idname = 'sub.import_anim'
     bl_label = 'Import Anim'
     #bl_options = {'UNDO'}
@@ -1397,6 +1398,7 @@ class SUB_PT_MOD_OT_Choose_Anim_Metadata_YML(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}    
     
 class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
+    """Adds jnt_255, the Engine Root Bone, to the top of the Armature."""
     bl_idname = 'sub.mod_op_add_joint_twofiftyfive'
     bl_label = "Add jnt_255 to Armature"
 
@@ -1427,6 +1429,7 @@ class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
         return {'FINISHED'}       
 
 class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
+    """Adds standard and easy to use IKs to the Armature"""
     bl_idname = 'sub.mod_op_add_simple_ik'
     bl_label = "Add Simple IK to Armature" 
 
@@ -1924,7 +1927,7 @@ class SUB_OP_ADD_SIMPLE_IK(bpy.types.Operator):
         return {'FINISHED'} 
     
 class SUB_OP_SELECT_RELEVANT_JOINTS_FOR_BAKING(bpy.types.Operator):
-    """Choose which Metadata YML to Use"""
+    """Selects the primary, twist, and hand bones for baking"""
     bl_idname = "sub.op_select_relevant_joints_for_baking"
     bl_label = "Selects Relevant Bones for Baking"
 
