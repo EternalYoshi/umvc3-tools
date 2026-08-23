@@ -773,7 +773,7 @@ class ModelExporterBase(ABC):
                 index=index,
             )
         except Exception as e:
-            self.logger.warning( 'could not rebuild a stored envelope: ' + str(e) )
+            self.logger.warn( 'could not rebuild a stored envelope: ' + str(e) )
             return None
 
     def processMeshes( self, mip ):

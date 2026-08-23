@@ -848,7 +848,7 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.info( f'{bpy_material.name}: MT Character group, '
                               f'bias {hl[0]:.3f} scale {hl[1]:.3f}' )
         except Exception as e:
-            self.logger.warning( 'could not build the MT shader: ' + str( e ) )
+            self.logger.warn( 'could not build the MT shader: ' + str( e ) )
 
     def _wireRampLookup( self, bpy_material, nodes, inst, ramp_tex ):
         """The ramp is a 512x1 lookup, so it needs the half lambert value as its u.
@@ -917,7 +917,7 @@ class BlenderModelImporter(ModelImporterBase):
         bpy_material = bpy.data.materials.new(name=materialName)
         bpy_material.use_nodes = True
         if material is not None and not hasattr( material, 'getUVChannelForSlot' ):
-            self.logger.warning(
+            self.logger.warn(
                 f"material '{materialName}' has no mrl entry, importing untextured" )
             material = None
 

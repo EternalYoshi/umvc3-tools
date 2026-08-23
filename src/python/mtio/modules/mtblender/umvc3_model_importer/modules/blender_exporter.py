@@ -386,7 +386,7 @@ class BlenderModelExporter(ModelExporterBase):
             mesh.calc_loop_triangles()
             triangles = mesh.loop_triangles
             if len( triangles ) == 0:
-                self.logger.warning( f'mesh {obj.name} has no faces, skipping' )
+                self.logger.warn( f'mesh {obj.name} has no faces, skipping' )
                 return
 
             loopNormals = self._getLoopNormals( mesh )
