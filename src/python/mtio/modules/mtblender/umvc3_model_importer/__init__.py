@@ -1,8 +1,8 @@
 bl_info = {
 "name": "UMVC3 Model Importer",
 "description":"For importing UMVC3 Models.",
-"author":"Most Underlying code by TGE, adapted by Eternal Yoshi",
-"version":(0,0,11),
+"author":"Most Underlying code by TGE, adapted by Eternal Yoshi, Help and Export fix by Archer",
+"version":(0,7,0),
 "blender":(3,4,0),
 "location": "View 3D > Tool Shelf > MT Framework",
 "warning": "In progress.",
