@@ -75,7 +75,7 @@ animation. The presence of `animData` is the actual marker. This is probably wha
 | flag | values | meaning |
 |---|---|---|
 | `FSpecular` | `FSpecularMaskToon` (69), `FSpecularDisable` (14), `FSpecular` (6), `FSpecularMap` (1) | **`FSpecularDisable` means no specular at all** |
-| `FFresnel` | `FFresnel` (65), `FFresnelLegacy` (11) | Two implementations. A fresnel a technique used in shaders to change a material's look based on the angle at which you look at it. |
+| `FFresnel` | `FFresnel` (65), `FFresnelLegacy` (11) | Two implementations. A fresnel is a technique used in shaders to change a material's look based on the angle at which you look at it. |
 | `FReflect` | `FReflect` (54), `FReflectSphereMap` (11), `FReflectGlobalCubeMap` (11) | Reflection source. |
 | `FCalcRimLight` | `FCalcRimLight` (60), `FCalcRimLightDefault` (21), `FCalcRimLightNone` (2) | `None` means no rim light |
 | `FBump` | `FBumpNormalMap` (77), `FBump` (13) | The 13 plain `FBump` materials have no normal map |
