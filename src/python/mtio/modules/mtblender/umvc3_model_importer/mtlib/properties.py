@@ -96,8 +96,8 @@ class UMVC3ModelImportProperties(PropertyGroup):
         max=20.0,
     )
     import_toon_shading: BoolProperty(
-        name='Use Toon Ramp (EXPERIMENTAL)',
-        description='Drive the MT Character shader with the toon ramp textures.',
+        name='MT Shading',
+        description='Rebuild each material with the game\'s own shading (toon ramps, half lambert, rim light, specular, colour correct) from the mrl. Works in Eevee and Cycles. Sets the view transform to Standard so colours match the game',
         default=False,
     )
     inherit_scale: BoolProperty(

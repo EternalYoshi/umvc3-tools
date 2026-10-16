@@ -3,6 +3,8 @@ from ..mtlib import *
 from ..mtlib.base_importer import *
 from . import blender_plugin
 from .blender_plugin import *
+from . import mt_shading
+import os
 import bpy
 import mathutils
 import array
@@ -16,6 +18,10 @@ def assertBlenderMode(expectedMode:str):
         return expectedMode == 'OBJECT'
 
 class BlenderModelImporter(ModelImporterBase):
+    # Stored inverted (1 - occlusion) so anything without the attribute, a new mesh or
+    # verts joined in from elsewhere, reads 0 and stays fully lit instead of going black.
+    OCCLUSION_ATTRIBUTE = 'mt_ao_darken'
+
     def __init__(self):
         super().__init__(blender_plugin.plugin)
         self.armature = None
@@ -160,6 +166,17 @@ class BlenderModelImporter(ModelImporterBase):
                     layer.data[i].color = ( c[0], c[1], c[2], c[3] )
             except Exception as e:
                 self.logger.debug( 'could not create vertex colour layer: ' + str( e ) )
+
+        # Per vertex occlusion. The character shaders multiply the lit diffuse by it, so
+        # it goes on the mesh as a float attribute the MT Character group reads, and the
+        # exporter writes it back instead of a flat 1.
+        occ = vertexData.occlusionArray or []
+        if len( occ ) == len( verts ):
+            try:
+                attr = mesh.attributes.new( name=self.OCCLUSION_ATTRIBUTE, type='FLOAT', domain='POINT' )
+                attr.data.foreach_set( 'value', [ 1.0 - float( v ) for v in occ ] )
+            except Exception as e:
+                self.logger.debug( 'could not create occlusion attribute: ' + str( e ) )
         
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
@@ -176,7 +193,10 @@ class BlenderModelImporter(ModelImporterBase):
             # Works thanks to this stackexchange answer https://blender.stackexchange.com/a/75957
             # which a few of these comments below are also taken from
             # Do this LAST because it can remove some loops
-            mesh.create_normals_split()
+            # create_normals_split and use_auto_smooth were removed in 4.1, custom
+            # normals work without them there
+            if hasattr( mesh, 'create_normals_split' ):
+                mesh.create_normals_split()
             for face in mesh.polygons:
                 face.use_smooth = True  # loop normals have effect only if smooth shading ?
 
@@ -200,7 +220,8 @@ class BlenderModelImporter(ModelImporterBase):
             # In this way, a flat list is iterated over in triplets without wasting memory by copying the whole list
             mesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
 
-            mesh.use_auto_smooth = True
+            if hasattr( mesh, 'use_auto_smooth' ):
+                mesh.use_auto_smooth = True
         
         # parent to group
         if primitive.indices.getGroupId() in self.editorGroupLookup:
@@ -252,7 +273,8 @@ class BlenderModelImporter(ModelImporterBase):
         return mathutils.Vector((x, y))
         
     def createTexture( self, filename ):
-        return bpy.data.images.load(filepath=filename)
+        # share one image per file, materials reuse the same textures a lot
+        return bpy.data.images.load(filepath=filename, check_existing=True)
 
     def createDummy( self, name, pos ):
         blendGroup = bpy.data.objects.new(name, None)
@@ -489,262 +511,14 @@ class BlenderModelImporter(ModelImporterBase):
 
 
     # ------------------------------------------------------------------
-    # MT Character node group
+    # MT shading
     # ------------------------------------------------------------------
     #
-    # Principled is a PBR uber shader and MT is not PBR. There is no Principled input
-    # that means "look up a toon ramp with the half lambert term", and none for the rim
-    # light, the reverse ramp or the toon specular mask. Wiring MT's values into it was
-    # always an approximation onto a model that cannot express them.
-    #
-    # This builds one node group per blend file and instances it per material, so:
-    #   - the mrl values become named sockets on the group node instead of loose nodes
-    #   - improving the shading means editing one group, not reimporting every material
-    #   - each material's graph collapses to textures in, group, output
-    #
-    # Shader to RGB is Eevee only, so the group is built behind the same toggle and the
-    # Principled path stays as the Cycles fallback.
-
-    MT_GROUP_NAME = 'MT Character'
-
-    MT_GROUP_INPUTS = (
-        # ( name, type, default, min, max )
-        ( 'Albedo',            'NodeSocketColor', ( 0.8, 0.8, 0.8, 1.0 ), None, None ),
-        ( 'Alpha',             'NodeSocketFloat', 1.0, 0.0, 1.0 ),
-        ( 'Normal',            'NodeSocketVector', ( 0.0, 0.0, 1.0 ), None, None ),
-        ( 'Specular Mask',     'NodeSocketFloat', 1.0, 0.0, 1.0 ),
-        ( 'Toon Ramp',         'NodeSocketColor', ( 1.0, 1.0, 1.0, 1.0 ), None, None ),
-        ( 'Toon Rev Ramp',     'NodeSocketColor', ( 0.0, 0.0, 0.0, 1.0 ), None, None ),
-        ( 'HalfLambert Bias',  'NodeSocketFloat', 0.5, 0.0, 1.0 ),
-        ( 'HalfLambert Scale', 'NodeSocketFloat', 0.5, 0.0, 2.0 ),
-        ( 'Shadow Floor',      'NodeSocketFloat', 0.2, 0.0, 1.0 ),
-        ( 'Diffuse Tint',      'NodeSocketColor', ( 1.0, 1.0, 1.0, 1.0 ), None, None ),
-        ( 'Specular Tint',     'NodeSocketColor', ( 1.0, 1.0, 1.0, 1.0 ), None, None ),
-        ( 'Specular Power',    'NodeSocketFloat', 10.0, 1.0, 256.0 ),
-        ( 'Rim Light',         'NodeSocketFloat', 0.0, 0.0, 4.0 ),
-        # driven by the mrl feature flags, so a flag switches behaviour instead of
-        # only appearing as text in the reference panel
-        ( 'Use Toon Ramp',     'NodeSocketFloat', 1.0, 0.0, 1.0 ),
-        ( 'Fresnel',           'NodeSocketFloat', 0.0, 0.0, 4.0 ),
-        ( 'Specular Amount',   'NodeSocketFloat', 1.0, 0.0, 4.0 ),
-        ( 'Rim Colour',        'NodeSocketColor', ( 1.0, 1.0, 1.0, 1.0 ), None, None ),
-    )
-
-    def _groupInterfaceNew( self, group, name, socket_type, in_out ):
-        """4.0 replaced group.inputs/outputs with group.interface."""
-        if hasattr( group, 'interface' ):
-            return group.interface.new_socket( name=name, in_out=in_out,
-                                               socket_type=socket_type )
-        coll = group.inputs if in_out == 'INPUT' else group.outputs
-        return coll.new( socket_type, name )
-
-    def _getOrBuildMTGroup( self ):
-        existing = bpy.data.node_groups.get( self.MT_GROUP_NAME )
-        if existing is not None:
-            # never clobber a group the user may have edited
-            return existing
-
-        group = bpy.data.node_groups.new( self.MT_GROUP_NAME, 'ShaderNodeTree' )
-        n = group.nodes
-
-        gin = n.new( 'NodeGroupInput' )
-        gin.location = ( -1200, 0 )
-        gout = n.new( 'NodeGroupOutput' )
-        gout.location = ( 900, 0 )
-
-        for name, stype, default, lo, hi in self.MT_GROUP_INPUTS:
-            sock = self._groupInterfaceNew( group, name, stype, 'INPUT' )
-            try:
-                sock.default_value = default
-                if lo is not None: sock.min_value = lo
-                if hi is not None: sock.max_value = hi
-            except Exception:
-                pass
-        self._groupInterfaceNew( group, 'Shader', 'NodeSocketShader', 'OUTPUT' )
-
-        L = group.links
-        I = gin.outputs
-
-        # --- the lambert term -------------------------------------------------
-        # A plain diffuse lobe converted to a scalar. This is what MT feeds into its
-        # ramp lookup; there is no way to get a raw NdotL in Eevee's node graph.
-        diff = n.new( 'ShaderNodeBsdfDiffuse' )
-        diff.location = ( -1000, -200 )
-        diff.inputs['Color'].default_value = ( 1, 1, 1, 1 )
-        L.new( I['Normal'], diff.inputs['Normal'] )
-
-        s2rgb = n.new( 'ShaderNodeShaderToRGB' )
-        s2rgb.location = ( -820, -200 )
-        L.new( diff.outputs['BSDF'], s2rgb.inputs['Shader'] )
-
-        # half lambert: NdotL * scale + bias, mapped onto the ramp's u axis
-        hl_end = n.new( 'ShaderNodeMath' )
-        hl_end.operation = 'ADD'
-        hl_end.location = ( -820, -420 )
-        hl_end.label = 'bias + scale'
-        L.new( I['HalfLambert Bias'], hl_end.inputs[0] )
-        L.new( I['HalfLambert Scale'], hl_end.inputs[1] )
-
-        lookup = n.new( 'ShaderNodeMapRange' )
-        lookup.location = ( -620, -200 )
-        lookup.label = 'half lambert'
-        lookup.clamp = True
-        L.new( s2rgb.outputs['Color'], lookup.inputs['Value'] )
-        L.new( I['HalfLambert Bias'], lookup.inputs['To Min'] )
-        L.new( hl_end.outputs[0], lookup.inputs['To Max'] )
-
-        # --- ramp, lifted off black ------------------------------------------
-        # The ramps are flat black below u = 0.5 and the game never lets a surface go
-        # fully dark, so the floor keeps albedo readable in shadow.
-        floor = n.new( 'ShaderNodeMapRange' )
-        floor.location = ( -400, -200 )
-        floor.label = 'shadow floor'
-        floor.clamp = True
-        L.new( I['Toon Ramp'], floor.inputs['Value'] )
-        L.new( I['Shadow Floor'], floor.inputs['To Min'] )
-        floor.inputs['To Max'].default_value = 1.0
-
-        # --- diffuse ----------------------------------------------------------
-        tinted = n.new( 'ShaderNodeMixRGB' )
-        tinted.blend_type = 'MULTIPLY'
-        tinted.location = ( -200, 100 )
-        tinted.label = 'albedo x tint'
-        tinted.inputs['Fac'].default_value = 1.0
-        L.new( I['Albedo'], tinted.inputs['Color1'] )
-        L.new( I['Diffuse Tint'], tinted.inputs['Color2'] )
-
-        # With Use Toon Ramp at 0 the lookup is bypassed and the plain lambert term is
-        # used instead, so the same group covers a non toon material.
-        lighting = n.new( 'ShaderNodeMixRGB' )
-        lighting.blend_type = 'MIX'
-        lighting.location = ( -200, -200 )
-        lighting.label = 'lambert or ramp'
-        L.new( I['Use Toon Ramp'], lighting.inputs['Fac'] )
-        L.new( s2rgb.outputs['Color'], lighting.inputs['Color1'] )
-        L.new( floor.outputs['Result'], lighting.inputs['Color2'] )
-
-        shaded = n.new( 'ShaderNodeMixRGB' )
-        shaded.blend_type = 'MULTIPLY'
-        shaded.location = ( 0, 0 )
-        shaded.label = 'x lighting'
-        shaded.inputs['Fac'].default_value = 1.0
-        L.new( tinted.outputs['Color'], shaded.inputs['Color1'] )
-        L.new( lighting.outputs['Color'], shaded.inputs['Color2'] )
-
-        # --- rim light --------------------------------------------------------
-        # FCalcRimLight is set on most character materials. A fresnel term is the
-        # closest thing blender has and it reads correctly at silhouette edges.
-        fres = n.new( 'ShaderNodeFresnel' )
-        fres.location = ( -400, -600 )
-        fres.inputs['IOR'].default_value = 1.45
-        L.new( I['Normal'], fres.inputs['Normal'] )
-
-        rim_total = n.new( 'ShaderNodeMath' )
-        rim_total.operation = 'ADD'
-        rim_total.location = ( -380, -700 )
-        rim_total.label = 'rim + fresnel'
-        L.new( I['Rim Light'], rim_total.inputs[0] )
-        L.new( I['Fresnel'], rim_total.inputs[1] )
-
-        rim_amt = n.new( 'ShaderNodeMath' )
-        rim_amt.operation = 'MULTIPLY'
-        rim_amt.location = ( -200, -600 )
-        rim_amt.label = 'rim strength'
-        L.new( fres.outputs['Fac'], rim_amt.inputs[0] )
-        L.new( rim_total.outputs[0], rim_amt.inputs[1] )
-
-        rim_col = n.new( 'ShaderNodeMixRGB' )
-        rim_col.blend_type = 'MULTIPLY'
-        rim_col.location = ( 0, -600 )
-        rim_col.inputs['Fac'].default_value = 1.0
-        L.new( I['Rim Colour'], rim_col.inputs['Color1'] )
-        rim_col.inputs['Color2'].default_value = ( 1, 1, 1, 1 )
-
-        rim_scaled = n.new( 'ShaderNodeMixRGB' )
-        rim_scaled.blend_type = 'MULTIPLY'
-        rim_scaled.location = ( 180, -600 )
-        rim_scaled.label = 'rim'
-        L.new( rim_amt.outputs[0], rim_scaled.inputs['Fac'] )
-        rim_scaled.inputs['Color1'].default_value = ( 0, 0, 0, 1 )
-        L.new( rim_col.outputs['Color'], rim_scaled.inputs['Color2'] )
-
-        # --- specular ---------------------------------------------------------
-        # FSpecularMaskToon: a glossy lobe gated by the specular map, tinted by
-        # CBMaterial[4..6]. Power comes in as an exponent, blender wants roughness.
-        rough = n.new( 'ShaderNodeMath' )
-        rough.operation = 'DIVIDE'
-        rough.location = ( -820, -800 )
-        rough.inputs[0].default_value = 2.0
-        pow_plus = n.new( 'ShaderNodeMath' )
-        pow_plus.operation = 'ADD'
-        pow_plus.location = ( -1000, -800 )
-        L.new( I['Specular Power'], pow_plus.inputs[0] )
-        pow_plus.inputs[1].default_value = 2.0
-        L.new( pow_plus.outputs[0], rough.inputs[1] )
-
-        rough_sqrt = n.new( 'ShaderNodeMath' )
-        rough_sqrt.operation = 'SQRT'
-        rough_sqrt.location = ( -620, -800 )
-        rough_sqrt.label = 'exponent to roughness'
-        L.new( rough.outputs[0], rough_sqrt.inputs[0] )
-
-        gloss = n.new( 'ShaderNodeBsdfGlossy' )
-        gloss.location = ( -400, -820 )
-        L.new( I['Specular Tint'], gloss.inputs['Color'] )
-        L.new( rough_sqrt.outputs[0], gloss.inputs['Roughness'] )
-        L.new( I['Normal'], gloss.inputs['Normal'] )
-
-        gloss_rgb = n.new( 'ShaderNodeShaderToRGB' )
-        gloss_rgb.location = ( -200, -820 )
-        L.new( gloss.outputs['BSDF'], gloss_rgb.inputs['Shader'] )
-
-        spec_masked = n.new( 'ShaderNodeMixRGB' )
-        spec_masked.blend_type = 'MULTIPLY'
-        spec_masked.location = ( 0, -820 )
-        spec_masked.label = 'x specular mask'
-        spec_masked.inputs['Fac'].default_value = 1.0
-        L.new( gloss_rgb.outputs['Color'], spec_masked.inputs['Color1'] )
-        L.new( I['Specular Mask'], spec_masked.inputs['Color2'] )
-
-        spec_amt = n.new( 'ShaderNodeMixRGB' )
-        spec_amt.blend_type = 'MULTIPLY'
-        spec_amt.location = ( 130, -820 )
-        spec_amt.label = 'x specular amount'
-        spec_amt.inputs['Fac'].default_value = 1.0
-        L.new( spec_masked.outputs['Color'], spec_amt.inputs['Color1'] )
-        L.new( I['Specular Amount'], spec_amt.inputs['Color2'] )
-
-        # --- combine ----------------------------------------------------------
-        plus_spec = n.new( 'ShaderNodeMixRGB' )
-        plus_spec.blend_type = 'ADD'
-        plus_spec.location = ( 260, -200 )
-        plus_spec.inputs['Fac'].default_value = 1.0
-        L.new( shaded.outputs['Color'], plus_spec.inputs['Color1'] )
-        L.new( spec_amt.outputs['Color'], plus_spec.inputs['Color2'] )
-
-        plus_rim = n.new( 'ShaderNodeMixRGB' )
-        plus_rim.blend_type = 'ADD'
-        plus_rim.location = ( 440, -200 )
-        plus_rim.inputs['Fac'].default_value = 1.0
-        L.new( plus_spec.outputs['Color'], plus_rim.inputs['Color1'] )
-        L.new( rim_scaled.outputs['Color'], plus_rim.inputs['Color2'] )
-
-        emit = n.new( 'ShaderNodeEmission' )
-        emit.location = ( 620, -100 )
-        L.new( plus_rim.outputs['Color'], emit.inputs['Color'] )
-
-        # alpha, so one group covers both BSSolid and BSBlendAlpha materials
-        trans = n.new( 'ShaderNodeBsdfTransparent' )
-        trans.location = ( 620, -320 )
-        blend = n.new( 'ShaderNodeMixShader' )
-        blend.location = ( 760, -200 )
-        L.new( I['Alpha'], blend.inputs['Fac'] )
-        L.new( trans.outputs['BSDF'], blend.inputs[1] )
-        L.new( emit.outputs['Emission'], blend.inputs[2] )
-        L.new( blend.outputs['Shader'], gout.inputs['Shader'] )
-
-        self.logger.info( f'built the {self.MT_GROUP_NAME} node group' )
-        return group
+    # Rebuilt from the game's compiled shaders (root.spkg) and shader database
+    # (UserShaderPackage.mfx), see modules/mt_shading.py. The mrl flags pick the same
+    # building blocks the game's shader system does, the cbuffer values go onto sockets
+    # named after the real shader constants, and the lighting comes from scene properties
+    # that a stage's sdl can fill in. Works in Eevee and Cycles.
 
     def _wantsToonShading( self, context ):
         try:
@@ -752,148 +526,194 @@ class BlenderModelImporter(ModelImporterBase):
         except Exception:
             return False
 
-    def _buildMTShader( self, bpy_material, nodes, principled, albedo_tex, ramp_tex, material,
-                        normal_out=None, spec_out=None, rev_tex=None, useToonRamp=True ):
-        """Drop in an MT Character group and feed it. The per material graph is just
-        textures, the group, and the output; everything else lives in the group."""
+    def decodeYUVTexture( self, image, ddsPath ):
         try:
-            links = bpy_material.node_tree.links
-            out = nodes.get( 'Material Output' )
-            if out is None:
-                for nd in nodes:
-                    if nd.bl_idname == 'ShaderNodeOutputMaterial':
-                        out = nd
-                        break
-            if out is None:
-                return
+            png = os.path.splitext( ddsPath )[0] + '_rgb.png'
+            decoded = mt_shading.decode_yuv_image( image, png )
+            self.logger.info( f'decoded YUV (format 42) texture {os.path.basename( ddsPath )}' )
+            return decoded
+        except Exception as e:
+            self.logger.warn( f'could not decode YUV texture {ddsPath}: {e}' )
+            return image
 
-            group = self._getOrBuildMTGroup()
-            inst = nodes.new( 'ShaderNodeGroup' )
-            inst.node_tree = group
-            inst.name = 'MT Character'
-            inst.label = 'MT Character'
-            inst.location = ( 100, 300 )
-            inst.width = 240
+    def tagTextureFormat( self, image, fmt, texPath ):
+        try:
+            if image is not None:
+                image['mt_tex_format'] = int( fmt )
+                image['mt_tex_path'] = str( texPath )
+        except Exception:
+            pass
 
-            def setv( name, value ):
-                sock = inst.inputs.get( name )
-                if sock is not None:
+    def _mtTexNode( self, nodes, image, label, x, y, non_color=True, extend=False ):
+        tex = nodes.new( 'ShaderNodeTexImage' )
+        tex.image = image
+        tex.label = label
+        tex.location = ( x, y )
+        if non_color:
+            try:
+                image.colorspace_settings.name = 'Non-Color'
+            except Exception:
+                pass
+        if extend:
+            tex.extension = 'EXTEND'
+            tex.interpolation = 'Linear'
+        return tex
+
+    def _mtUV( self, bpy_material, nodes, tex, material, slot ):
+        try:
+            self._attachUVChannel( bpy_material, nodes, tex, material, slot )
+        except Exception as e:
+            self.logger.debug( f'uv for {slot}: {e}' )
+
+    def _buildMTMaterial( self, bpy_material, material, context, images ):
+        '''Replaces the material's graph with the MT shading graph.'''
+        nodes = bpy_material.node_tree.nodes
+        links = bpy_material.node_tree.links
+        for n in list( nodes ):
+            nodes.remove( n )
+        out = nodes.new( 'ShaderNodeOutputMaterial' )
+        out.location = ( 700, 200 )
+
+        variant = material.getShaderVariant()
+        coords = nodes.new( 'ShaderNodeGroup' )
+        coords.node_tree = mt_shading.get_coords_group()
+        coords.label = coords.name = 'MT Toon Coords'
+        coords.location = ( -500, -500 )
+        group = nodes.new( 'ShaderNodeGroup' )
+        group.node_tree = mt_shading.get_character_group()
+        group.label = group.name = 'MT Character'
+        group.location = ( 300, 200 )
+        group.width = 260
+        G = group.inputs
+        links.new( group.outputs['Shader'], out.inputs['Surface'] )
+
+        def setv( name, value ):
+            sock = G.get( name ) or coords.inputs.get( name )
+            if sock is not None and value is not None:
+                try:
+                    sock.default_value = value
+                except Exception:
                     try:
-                        sock.default_value = value
+                        sock.default_value = ( value[0], value[1], value[2], 1.0 )
                     except Exception:
                         pass
 
-            def link( name, socket ):
-                sock = inst.inputs.get( name )
-                if sock is not None and socket is not None:
-                    links.new( socket, sock )
+        geo = nodes.new( 'ShaderNodeNewGeometry' )
+        geo.location = ( -1300, -300 )
+        links.new( geo.outputs['Normal'], coords.inputs['Vertex Normal'] )
 
-            # textures
-            if albedo_tex is not None:
-                link( 'Albedo', albedo_tex.outputs['Color'] )
-                if material.isAlphaBlended():
-                    link( 'Alpha', albedo_tex.outputs['Alpha'] )
-                else:
-                    setv( 'Alpha', 1.0 )
-            if ramp_tex is not None and useToonRamp:
-                # sampled by the group, so give it the u coordinate it expects
-                self._wireRampLookup( bpy_material, nodes, inst, ramp_tex )
-                link( 'Toon Ramp', ramp_tex.outputs['Color'] )
-            if rev_tex is not None:
-                link( 'Toon Rev Ramp', rev_tex.outputs['Color'] )
-            if normal_out is not None:
-                link( 'Normal', normal_out )
-            if spec_out is not None:
-                link( 'Specular Mask', spec_out )
-
-            # mrl numbers
-            hl = material.getHalfLambert() or ( 0.5, 0.5 )
-            setv( 'HalfLambert Bias',  float( hl[0] ) )
-            setv( 'HalfLambert Scale', float( hl[1] ) )
-
-            factor = self._diffuseFactor( material )
-            setv( 'Diffuse Tint', ( factor[0], factor[1], factor[2], 1.0 ) )
-
-            spec = material.getSpecularTint()
-            if spec is not None:
-                setv( 'Specular Tint', ( spec[0], spec[1], spec[2], 1.0 ) )
-            power = material.getSpecularPower()
-            if power:
-                setv( 'Specular Power', float( power ) )
-
-            # Feature flags become behaviour rather than text. Each of these is present
-            # on a material only when the shader uses it.
-            setv( 'Rim Light',       1.0 if material.hasFlag( 'FCalcRimLight' ) else 0.0 )
-            setv( 'Fresnel',         0.5 if material.hasFlag( 'FFresnel' ) else 0.0 )
-            setv( 'Specular Amount', 1.0 if material.hasFlag( 'FSpecular' ) else 0.0 )
-            # the ramp only drives shading when the user asked for it, otherwise the
-            # group falls back to a plain lambert and stays useful
-            setv( 'Use Toon Ramp',   1.0 if useToonRamp else 0.0 )
-
-            links.new( inst.outputs['Shader'], out.inputs['Surface'] )
-
-            # the ramp is the whole lighting model, blender's own shadowing double counts
+        # --- normal: alpha is X, green is Y (flipped for blender's uv), z rebuilt
+        normal_sock = geo.outputs['Normal']
+        if images.get( 'tNormalMap' ) is not None:
+            tex = self._mtTexNode( nodes, images['tNormalMap'], 'tNormalMap', -1300, -100 )
+            self._mtUV( bpy_material, nodes, tex, material, 'tNormalMap' )
+            sep = nodes.new( 'ShaderNodeSeparateColor' ); sep.location = ( -1050, -100 )
+            links.new( tex.outputs['Color'], sep.inputs['Color'] )
+            def m( op, a, b=None, loc=( -900, -100 ) ):
+                n = nodes.new( 'ShaderNodeMath' ); n.operation = op; n.location = loc
+                for i, v in enumerate( ( a, b ) ):
+                    if v is None: continue
+                    if isinstance( v, bpy.types.NodeSocket ): links.new( v, n.inputs[i] )
+                    else: n.inputs[i].default_value = v
+                return n.outputs[0]
+            x = m( 'MULTIPLY_ADD', tex.outputs['Alpha'], 2.0 ); x.node.inputs[2].default_value = -0.996078
+            y = m( 'MULTIPLY_ADD', sep.outputs['Green'], 2.0 ); y.node.inputs[2].default_value = -0.996078
+            y = m( 'MULTIPLY', y, -1.0 )
+            zz = m( 'SQRT', m( 'MAXIMUM', m( 'SUBTRACT', m( 'SUBTRACT', 1.0, m( 'MULTIPLY', x, x ) ), m( 'MULTIPLY', y, y ) ), 0.0001 ) )
+            comb = nodes.new( 'ShaderNodeCombineXYZ' ); comb.location = ( -700, -100 )
+            for i, c in enumerate( ( x, y, zz ) ):
+                links.new( m( 'MULTIPLY_ADD', c, 0.5 ), comb.inputs[i] )
+                comb.inputs[i].links[0].from_node.inputs[2].default_value = 0.5
+            nmap = nodes.new( 'ShaderNodeNormalMap' ); nmap.location = ( -550, -100 )
             try:
-                bpy_material.shadow_method = 'NONE'
+                nmap.uv_map = material.getUVChannelForSlot( 'tNormalMap' )
             except Exception:
                 pass
+            links.new( comb.outputs[0], nmap.inputs['Color'] )
+            normal_sock = nmap.outputs['Normal']
+        links.new( normal_sock, coords.inputs['Normal'] )
+        links.new( normal_sock, G['Normal'] )
+        links.new( coords.outputs['Shading Normal'], G['Shading Normal'] )
 
-            # Nothing feeds it any more, so leave it out of the graph rather than
-            # parking a dead node next to every material.
-            try:
-                if principled is not None:
-                    nodes.remove( principled )
-            except Exception:
-                pass
-            self.logger.info( f'{bpy_material.name}: MT Character group, '
-                              f'bias {hl[0]:.3f} scale {hl[1]:.3f}' )
-        except Exception as e:
-            self.logger.warn( 'could not build the MT shader: ' + str( e ) )
+        # --- albedo
+        if images.get( 'tAlbedoMap' ) is not None:
+            tex = self._mtTexNode( nodes, images['tAlbedoMap'], 'tAlbedoMap', -700, 500 )
+            self._mtUV( bpy_material, nodes, tex, material, 'tAlbedoMap' )
+            links.new( tex.outputs['Color'], G['Albedo'] )
+            links.new( tex.outputs['Alpha'], G['Alpha'] )
+        setv( 'Use Alpha', 1.0 if material.isAlphaBlended() or variant['alpha_test'] else 0.0 )
 
-    def _wireRampLookup( self, bpy_material, nodes, inst, ramp_tex ):
-        """The ramp is a 512x1 lookup, so it needs the half lambert value as its u.
-        That value is computed inside the group, so mirror the same maths outside to
-        drive the texture. Cheap, and keeps the group's inputs plain colours."""
+        # --- specular mask: green channel, matcap uv for FUVViewNormal
+        if images.get( 'tSpecularMap' ) is not None:
+            tex = self._mtTexNode( nodes, images['tSpecularMap'], 'tSpecularMap', -700, 250 )
+            if variant['spec_view_uv']:
+                links.new( coords.outputs['View UV'], tex.inputs['Vector'] )
+            else:
+                self._mtUV( bpy_material, nodes, tex, material, 'tSpecularMap' )
+            sep = nodes.new( 'ShaderNodeSeparateColor' ); sep.location = ( -450, 250 )
+            links.new( tex.outputs['Color'], sep.inputs['Color'] )
+            links.new( sep.outputs['Green'], G['Specular Mask'] )
+
+        # --- toon ramps, sampled at the u the coords group works out
+        toon = variant['toon'] and images.get( 'tToonMap' ) is not None
+        if toon:
+            img = images['tToonMap']
+            if variant['toon_high']:
+                tf = material.getConstant( 'fToonFactor' )
+                if tf is not None:
+                    try:
+                        img = mt_shading.bake_toon_high_ramp( img, tf )
+                    except Exception as e:
+                        self.logger.warn( f'could not bake the FToonShaderHigh ramp: {e}' )
+            tex = self._mtTexNode( nodes, img, 'tToonMap', -250, -350, extend=True )
+            links.new( coords.outputs['Toon UV'], tex.inputs['Vector'] )
+            links.new( tex.outputs['Color'], G['Toon Ramp'] )
+        if images.get( 'tToonRevMap' ) is not None:
+            tex = self._mtTexNode( nodes, images['tToonRevMap'], 'tToonRevMap', -250, -600, extend=True )
+            links.new( coords.outputs['Rev UV'], tex.inputs['Vector'] )
+            links.new( tex.outputs['Color'], G['Toon Rev Ramp'] )
+        else:
+            setv( 'Rim', 0.0 )
+
+        # --- sphere map reflection
+        if images.get( 'tSphereMap' ) is not None:
+            tex = self._mtTexNode( nodes, images['tSphereMap'], 'tSphereMap', -250, 0, extend=True )
+            links.new( coords.outputs['View UV'], tex.inputs['Vector'] )
+            links.new( tex.outputs['Color'], G['Reflection'] )
+
+        # --- vertex occlusion (stored as 1 - occlusion)
+        occ = nodes.new( 'ShaderNodeAttribute' )
+        occ.attribute_type = 'GEOMETRY'
+        occ.attribute_name = self.OCCLUSION_ATTRIBUTE
+        occ.location = ( -250, 650 )
+        inv = nodes.new( 'ShaderNodeMath' ); inv.operation = 'SUBTRACT'; inv.location = ( 0, 650 )
+        inv.inputs[0].default_value = 1.0
+        links.new( occ.outputs['Fac'], inv.inputs[1] )
+        links.new( inv.outputs[0], G['Occlusion'] )
+
+        # --- mrl values and switches
+        hl = material.getHalfLambert() or ( 0.5, 0.5 )
+        # plain FToonLightCalc samples at N.L, which is the same formula with spread 1
+        setv( 'fHalfLambertRevise', hl[0] if variant['half'] else 1.0 )
+        setv( 'fHalfLambertReviseRev', hl[1] if variant['rev_half'] else 1.0 )
+        setv( 'Uroko', 1.0 if variant['uroko'] else 0.0 )
+        setv( 'fUrokoFactor', material.getConstant( 'fUrokoFactor', 1.0 ) )
+        for name in ( 'fAlbedoColor', 'fDiffuseColor', 'fSpecularColor', 'fShininess', 'fReflectiveColor',
+                      'fFresnelSchlick', 'fFresnelLegacyFactor', 'fFresnelLegacyBias',
+                      'fDiffuseColorCorectValue', 'fTransparency' ):
+            setv( name, material.getConstant( name ) )
+        setv( 'Toon', 1.0 if toon else 0.0 )
+        setv( 'Color Correct', 1.0 if variant['color_correct'] else 0.0 )
+        setv( 'Specular', float( variant['specular'] ) )
+        setv( 'Rim', 1.0 if ( variant['rim'] and images.get( 'tToonRevMap' ) is not None ) else 0.0 )
+        setv( 'Fresnel', float( variant['fresnel'] ) )
+
         try:
-            links = bpy_material.node_tree.links
-            diff = nodes.new( 'ShaderNodeBsdfDiffuse' )
-            diff.location = ( -1500, -300 )
-            diff.inputs['Color'].default_value = ( 1, 1, 1, 1 )
-            s2 = nodes.new( 'ShaderNodeShaderToRGB' )
-            s2.location = ( -1320, -300 )
-            links.new( diff.outputs['BSDF'], s2.inputs['Shader'] )
-
-            rng = nodes.new( 'ShaderNodeMapRange' )
-            rng.location = ( -1140, -300 )
-            rng.label = 'half lambert'
-            rng.clamp = True
-            links.new( s2.outputs['Color'], rng.inputs['Value'] )
-            bias = inst.inputs['HalfLambert Bias'].default_value
-            scale = inst.inputs['HalfLambert Scale'].default_value
-            rng.inputs['To Min'].default_value = max( 0.0, min( 1.0, bias ) )
-            rng.inputs['To Max'].default_value = max( 0.0, min( 1.0, bias + scale ) )
-
-            comb = nodes.new( 'ShaderNodeCombineXYZ' )
-            comb.location = ( -940, -300 )
-            links.new( rng.outputs['Result'], comb.inputs['X'] )
-            comb.inputs['Y'].default_value = 0.5
-            ramp_tex.location = ( -760, -300 )
-            links.new( comb.outputs['Vector'], ramp_tex.inputs['Vector'] )
-        except Exception as e:
-            self.logger.debug( 'could not wire the ramp lookup: ' + str( e ) )
-
-    def _diffuseFactor( self, material ):
-        """CBMaterial[0..2] tints the albedo and CBDiffuseColorCorect scales it, a flat
-        1.22 on every material seen that has it. Both belong on the plain Principled
-        path as much as the toon one, so they live here rather than inside either."""
-        factor = [ 1.0, 1.0, 1.0 ]
-        tint = material.getDiffuseTint()
-        if tint is not None:
-            factor = [ tint[0], tint[1], tint[2] ]
-        boost = material.getDiffuseColorCorrect()
-        if boost is not None:
-            factor = [ c * boost for c in factor ]
-        return factor
+            bpy_material.shadow_method = 'NONE'
+        except Exception:
+            pass
+        bpy_material['mt_variant'] = ', '.join( k for k, v in variant.items() if v is True )
+        self.logger.info( f'{bpy_material.name}: MT shading ({bpy_material["mt_variant"]})' )
 
     def _applyMaterialState( self, bpy_material, material ):
         '''Blend and raster state map straight onto blender material settings and
@@ -1056,26 +876,24 @@ class BlenderModelImporter(ModelImporterBase):
                         pass
                     toon_nodes[slot] = toon_tex
 
-            # The MT group is always built, because Principled cannot represent this
-            # material model at all. The toggle only decides whether the toon ramp
-            # drives the lighting or the group falls back to a plain lambert.
-            # Opt in only. With the Rendering options off an import is plain Principled,
-            # which is what rigging and export work wants: textures as authored, no
-            # tint, no brightness lift, nothing to undo.
+            # Opt in. With it off an import is plain Principled, which is what rigging and
+            # export work wants: textures as authored, nothing to undo.
+            mt_shaded = False
             if self._wantsToonShading( context ):
-                self._buildMTShader(
-                    bpy_material, nodes, principled_bsdf, albedo_tex,
-                    toon_nodes.get( 'tToonMap' ), material,
-                    normal_out  = normal_map_node.outputs['Normal'] if normal_map_node else None,
-                    spec_out    = metalness_tex.outputs['Color'] if metalness_tex else None,
-                    rev_tex     = toon_nodes.get( 'tToonRevMap' ),
-                    useToonRamp = True )
-
-            # CBHalfLambert drives the toon ramp lookup and varies per material,
-            # 7 distinct pairs across Dante's 25. Stash it so it isn't lost.
-            hl = material.getHalfLambert()
-            if hl is not None:
-                bpy_material['CBHalfLambert'] = [ hl[0], hl[1] ]
+                try:
+                    images = {
+                        'tAlbedoMap':  albedo_map,
+                        'tSpecularMap': specular_map,
+                        'tNormalMap':  normal_map,
+                        'tToonMap':    toon_nodes['tToonMap'].image if 'tToonMap' in toon_nodes else None,
+                        'tToonRevMap': toon_nodes['tToonRevMap'].image if 'tToonRevMap' in toon_nodes else None,
+                        'tSphereMap':  self.loadTextureSlot( material, 'tSphereMap', context ),
+                    }
+                    self._buildMTMaterial( bpy_material, material, context, images )
+                    mt_shaded = True
+                except Exception as e:
+                    self.logger.warn( f'could not build MT shading for {materialName}: {e}' )
+                    self.logger.exception( e )
 
             #Light Maps. tOcclusionMap
             # Specular tint and power go to the MT group as inputs, so the old
@@ -1084,7 +902,7 @@ class BlenderModelImporter(ModelImporterBase):
             self._applyMaterialState( bpy_material, material )
 
             light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
-            if light_map:
+            if light_map and not mt_shaded:
                 light_map_tex = nodes.new("ShaderNodeTexImage")   
                 light_map_tex.image = light_map
                 #Not sure how to properly apply the light map to the Blender scene so we'll just put the texture in the shading tab separate from the rest.
@@ -1222,6 +1040,13 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.debug( f'could not add an outline to {getattr(obj,"name","?")}: {e}' )
 
     def importModel(self, modFilePath, context):
+        if self._wantsToonShading( context ):
+            try:
+                mip = context.scene.sub_scene_properties
+                mt_shading.ensure_scene_lighting( context.scene, getattr( mip, 'model_scale', 1.0 ) )
+                mt_shading.set_view_transform_standard( context.scene )
+            except Exception as e:
+                self.logger.warn( f'could not set up MT lighting: {e}' )
         super().importModel(modFilePath, context)
 
         try:

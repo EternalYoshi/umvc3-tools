@@ -1,4 +1,3 @@
-import os
 import os.path
 import bpy
 import mathutils
@@ -137,13 +136,50 @@ class SUB_PT_Model_Import_Rendering(Panel):
         layout = self.layout
 
         row = layout.row(align=True)
-        row.prop(mip, 'import_toon_shading', text='Use Toon Ramp (Eevee)')
+        row.prop(mip, 'import_toon_shading', text='MT Shading (game accurate)')
 
         row = layout.row(align=True)
         row.prop(mip, 'import_outline', text='Add Ink Outline')
         row = layout.row(align=True)
         row.enabled = mip.import_outline
         row.prop(mip, 'outline_thickness')
+
+        # the scene lighting the MT Character group reads, normally filled from a stage sdl
+        scene = context.scene
+        layout.separator()
+        layout.label(text='MT Lighting')
+        row = layout.row(align=True)
+        row.operator(SUB_OP_LoadStageLighting.bl_idname, icon='LIGHT_SUN', text='Load Stage Lighting (sdl folder)')
+        if 'mt_light_color' in scene.keys():
+            for key, label in (('mt_light_color', 'Key Light'), ('mt_ambient', 'Ambient'),
+                               ('mt_rim_color', 'Rim Colour'), ('mt_rim_power', 'Rim Power')):
+                row = layout.row(align=True)
+                row.prop(scene, '["%s"]' % key, text=label)
+            layout.label(text='Rotate the "MT Key Light" empty to move the light')
+
+
+class SUB_OP_LoadStageLighting(bpy.types.Operator):
+    """Read a stage's sdl folder (e.g. nativePCx64\\stg\\000\\0000\\stg\\000\\sdl) and set the MT key light and rim light from it"""
+
+    bl_idname = "sub.mt_load_stage_lighting"
+    bl_label = "Load Stage Lighting"
+    bl_options = {'UNDO'}
+    directory: bpy.props.StringProperty(subtype="DIR_PATH")
+
+    def invoke(self, context, event):  # pragma: no cover
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        from . import mt_shading
+        if not self.directory or not os.path.isdir(self.directory):
+            self.report({'ERROR'}, 'Pick the folder that holds the stage .sdl files')
+            return {'CANCELLED'}
+        mip = context.scene.sub_scene_properties
+        mt_shading.ensure_scene_lighting(context.scene, getattr(mip, 'model_scale', 1.0))
+        msg = mt_shading.load_stage_lighting(context.scene, self.directory)
+        self.report({'INFO'}, 'MT lighting: ' + msg)
+        return {'FINISHED'}
 
 
 class SUB_OP_MOD_ImportModelPath(bpy.types.Operator, ImportHelper):

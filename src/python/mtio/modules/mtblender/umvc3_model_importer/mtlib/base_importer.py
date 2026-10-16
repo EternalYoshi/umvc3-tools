@@ -27,6 +27,10 @@ class DecodedVertexData:
     weightArray: EditorArrayProxy
     jointArray: EditorArrayProxy
     colorArray: EditorArrayProxy
+    # per vertex occlusion, the 4th component of the normal (or the separate Occlusion
+    # input on TB layouts), decoded the same way the vertex shader reads it. The pixel
+    # shaders multiply the lit diffuse by it, so it's baked AO, not padding.
+    occlusionArray: list = None
 
 @dataclass
 class PreprocessedWeightData:
@@ -112,6 +116,7 @@ class ModelImporterBase(ABC):
         editorWeightArray = self.createArray()
         editorJointArray = self.createArray()
         editorColorArray = self.createArray()
+        occlusionArray = []
 
         self.logger.debug( 'decoding vertices' )
         # vertexBufferOffset + (indexStartIndex + vertexStartIndex) * stride equals the running byte total
@@ -125,6 +130,7 @@ class ModelImporterBase(ABC):
             editorVtxJointArray = None
             vtxColor = None
             vtxAlpha = None
+            vtxOcclusion = None
             for key, value in shaderInfo.inputsByName.items():
                 for inputInfo in value:
                     vertexStream.setOffset( vertexStart + inputInfo.offset )
@@ -135,10 +141,16 @@ class ModelImporterBase(ABC):
                             pos = nclTransform(pos, self.modelMtx )
                         editorVertexArray.append( self.convertNclVec3ToPoint3( pos ) )
                     elif key == 'Normal':
+                        if inputInfo.type == 11:
+                            # packed x8y8z8w8, w is the occlusion
+                            vtxOcclusion = vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[3]
+                            vertexStream.setOffset( vertexStart + inputInfo.offset )
                         nrm = self.decodeInputToPoint3( inputInfo, vertexStream )
                         if not self.config.debugDisableTransform:
                             nrm = nclNormalize( nclTransform( nrm, self.modelMtxNormal ) )
                         editorNormalArray.append( self.convertNclVec3ToPoint3( nrm ) )
+                    elif key == 'Occlusion':
+                        vtxOcclusion = float( vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[0] )
                     elif key == 'Joint':
                         if editorVtxJointArray == None:
                             editorVtxJointArray = self.createArray()
@@ -167,6 +179,9 @@ class ModelImporterBase(ABC):
                 a = vtxAlpha if vtxAlpha != None else 1.0
                 editorColorArray.append( ( c[0]/255.0, c[1]/255.0, c[2]/255.0, a ) )
 
+            if vtxOcclusion != None:
+                occlusionArray.append( float( vtxOcclusion ) )
+
             if editorVtxWeightArray != None:
                 editorWeightArray.append( editorVtxWeightArray )
             if editorVtxJointArray != None:
@@ -181,7 +196,8 @@ class ModelImporterBase(ABC):
             editorUVExtendArray,
             editorWeightArray,
             editorJointArray,
-            editorColorArray
+            editorColorArray,
+            occlusionArray
         )
             
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:
@@ -246,8 +262,23 @@ class ModelImporterBase(ABC):
                     self.logger.exception( e )
                     return None
                         
-                return self.createTexture( textureDDSPath )
+                image = self.createTexture( textureDDSPath )
+                fmt = texture.header.fmt.surfaceFmt
+                # BM_HQ (42) on mvc3 pc is YUV packed into DXT5, the game decodes it in the
+                # shader. Decode it here so blender shows real colours.
+                if fmt == rTextureSurfaceFmt.BM_HQ and not target.current.BM_HQ_BC7:
+                    image = self.decodeYUVTexture( image, textureDDSPath )
+                self.tagTextureFormat( image, fmt, textureTEXPath )
+                return image
             return None
+
+    def decodeYUVTexture( self, image, ddsPath ):
+        '''Editor specific, returns the image unchanged by default.'''
+        return image
+
+    def tagTextureFormat( self, image, fmt, texPath ):
+        '''Editor specific. Remembers the source .tex format so export can keep it.'''
+        pass
 
     def loadMetadata( self, path ):
         metadata = ModelMetadata()
