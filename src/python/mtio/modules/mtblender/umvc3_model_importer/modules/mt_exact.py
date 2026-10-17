@@ -28,21 +28,25 @@ from ..mtlib import mtshaders, sm3ir
 # renderer side values (Training Room; replaced by capture data when available)
 # ----------------------------------------------------------------------------------------
 
+# what the renderer set for Ryu in the Training Room (umvc3_framecapture, 2026-10-17)
 RENDERER_DEFAULTS = {
-    # key light: [1] = direction to the light (MT axes), [2] = colour
-    'sLightParam0': [ ( 0.0, 0.0, 0.0, 0.0 ), ( 0.03236, 0.4475, 0.8937, 0.0 ), ( 1.15, 1.15, 1.15, 0.0 ), ( 0.0, 0.0, 0.0, 0.0 ) ],
+    # key light: [0].w = ?, [1] = direction to the light (MT axes), [2] = colour
+    'sLightParam0': [ ( 0.0, 0.0, 0.0, 0.9 ), ( 0.032362, 0.447458, 0.893719, 0.0 ), ( 1.15, 1.15, 1.15, 1.0 ), ( 0.0, 0.0, 0.0, 0.0 ) ],
     'sLightParam1': [ ( 0.0, 0.0, 0.0, 0.0 ), ( 0.0, 0.0, 0.0, 0.0 ), ( 0.0, 0.0, 0.0, 0.0 ), ( 0.0, 1.0, 0.0, 0.0 ) ],
-    'CBAmbient__packed0': [ ( 0.0, 0.0, 0.0, 0.0 ) ],
-    'CBAmbient__packed1': [ ( 0.0, 0.0, 0.0, 0.0 ) ],
-    'CBToon__packed0': [ ( 2.0, 15.0, 4.0, 0.0 ) ],
-    'fRimLightColorFactor': [ ( 0.0, 2.326, 10.0, 1.0 ) ],
+    'CBAmbient__packed0': [ ( 0.0, 0.0, 0.0, 1.0 ) ],
+    'CBAmbient__packed1': [ ( 0.75, 0.0, 0.0, 0.125 ) ],
+    # rim light min height, max height, power
+    'CBToon__packed0': [ ( 2.0, 15.0, 1.0, 0.0 ) ],
+    # the stage sdl says ( 0, 2.326, 10 ); the game drew Ryu with 0.8 of that
+    'fRimLightColorFactor': [ ( 0.0, 1.860466, 8.0, 1.0 ) ],
     'fCutInFactor': [ ( 1.0, 1.0, 1.0, 1.0 ) ],
-    'fGlobalTransparency': [ ( 1.0, 1.0, 1.0, 1.0 ) ],
-    'CBROPTest__packed0': [ ( 0.0, 0.0, 0.0, 0.0 ) ],
-    'CBHDRFactor__packed0': [ ( 1.0, 1.0, 1.0, 1.0 ) ],
-    'fLightMaskSelector': [ ( 0.0, 0.0, 0.0, 0.0 ) ],
+    'fGlobalTransparency': [ ( 1.0, 0.0, 0.0, 0.0 ) ],
+    'CBROPTest__packed0': [ ( 0.0, 0.0, 0.0, 0.999001 ) ],
+    # the scene target holds colour * 0.5, post decodes * 2
+    'CBHDRFactor__packed0': [ ( 0.5, 2.0, 1.0, 1.0 ) ],
+    'fLightMaskSelector': [ ( 1.0, 0.0, 0.0, 0.0 ) ],
     'CBScreen__packed0': [ ( 0.0, 0.0, 1.0, 1.0 ) ],
-    'CBScreen__packed1': [ ( 1280.0, 720.0, 1.0 / 1280.0, 1.0 / 720.0 ) ],
+    'CBScreen__packed1': [ ( 1600.0, 900.0, 1.0 / 1600.0, 1.0 / 900.0 ) ],
 }
 
 TEMPLATE_FILE = os.path.join( os.path.dirname( os.path.dirname( __file__ ) ), 'mtlib', 'res', 'renderer_templates.json' )
@@ -101,32 +105,45 @@ def material_overrides( material, images ):
             named[cmd.name] = ( 'tex', mtshaders.TEX_TYPE.get( int( fmt ), 0 ) if fmt is not None else 0 )
     return named
 
-def wanted_renderer_state( scene ):
-    '''What the renderer would set for this scene: a point light in slot 1 when the MT
-    point light is set, the light mask (screen space shadow mask), and the shadow face
-    attenuation mode of the stage.'''
+def receives_shadows( prim_flags ):
+    '''Primitives with flag bits 0x0104 set get a TShadowReceive pass (the screen space
+    light mask) and are drawn with FLightMaskEnable + FShadowReceiveFaceAttnIncrease;
+    the rest (Ryu's eyes, flags 0xfefb) without. Seen in the Training Room capture.'''
+    try:
+        f = int( str( prim_flags ), 0 )
+    except Exception:
+        return True
+    return ( f & 0x0104 ) == 0x0104
+
+def wanted_renderer_state( scene, receive=True ):
+    '''What the renderer would set: a point light in slot 1 when the MT point light is
+    set, and the light mask / face attenuation pair for shadow receiving primitives.'''
     mip = getattr( scene, 'sub_scene_properties', None )
     point = getattr( mip, 'mt_point_light', None ) if mip is not None else None
     return {
         'FDynamicLight1': 'FPointLightD' if point is not None else None,
-        'FLightMask': 'FLightMaskEnable' if scene.get( 'mt_light_mask', 0 ) else None,
-        'FShadowReceiveFaceAttn': scene.get( 'mt_shadow_face_attn', 'FShadowReceiveFaceAttnCut' ),
+        'FLightMask': 'FLightMaskEnable' if receive else None,
+        'FShadowReceiveFaceAttn': 'FShadowReceiveFaceAttnIncrease' if receive else 'FShadowReceiveFaceAttnCut',
     }
 
-def template_order( temps, scene ):
-    want = wanted_renderer_state( scene )
+def template_order( temps, scene, receive=True ):
+    want = wanted_renderer_state( scene, receive )
     def score( t ):
         return sum( 1 for k, v in want.items() if t.get( k ) == v )
     return sorted( range( len( temps ) ), key=lambda i: -score( temps[i] ) )
 
-def pick_program( db, material, ia, images, scene, outenc=1, tech=None ):
+def pick_program( db, material, ia, images, scene, outenc=1, tech=None, receive=True ):
     '''Returns (Program, template index) or (None, None). Tries the renderer templates the
     game was seen using, best match for the scene first.'''
     templates = renderer_templates() or {}
     tech = tech or technique_for( material )
     temps = templates.get( '%s_%d' % ( tech, outenc ) ) or templates.get( 'TMaterialChar_%d' % outenc ) or [ {} ]
-    order = template_order( temps, scene )
+    order = template_order( temps, scene, receive )
     named_mat = material_overrides( material, images ) if material is not None else {}
+    if tech == 'TMaterialCharAlpha':
+        # the renderer turns alpha test on for every alpha character material (35 of 35
+        # TMaterialCharAlpha keys in the shader log), the MRL never says so
+        named_mat.setdefault( 'FAlphaTest', 'FAlphaTestGreater' )
     for ti in order:
         if ti >= len( temps ):
             continue
@@ -454,10 +471,12 @@ class Bind:
             tc = self.node( 'ShaderNodeTexCoord' )
             x, y, _ = self.sep( tc.outputs['Window'] )
             size = self.scene_vec4( scene_prop_name( 'CBScreen__packed1', 0 ) )
+            # D3D9 vPos is the pixel's integer corner (the shaders add 0.5 themselves),
+            # Blender's window coordinate is the pixel centre
             if comp == 0:
-                self.cache[key] = self.m( 'MULTIPLY', x, size[0] )
+                self.cache[key] = self.m( 'SUBTRACT', self.m( 'MULTIPLY', x, size[0] ), 0.5 )
             elif comp == 1:
-                self.cache[key] = self.m( 'MULTIPLY', self.m( 'SUBTRACT', 1.0, y ), size[1] )
+                self.cache[key] = self.m( 'SUBTRACT', self.m( 'MULTIPLY', self.m( 'SUBTRACT', 1.0, y ), size[1] ), 0.5 )
             else:
                 self.cache[key] = 0.0
         return self.cache[key]
@@ -473,6 +492,8 @@ class Bind:
         name = self.sampler_name( s )
         state, _, slot = name.partition( '__' )
         img = self.images.get( slot )
+        if img is None and self.scene.get( 'mt_systex_' + slot ):
+            img = bpy.data.images.get( self.scene['mt_systex_' + slot] )
         if img is None or kind != '2d':
             # system textures the game renders itself (light mask, fog table, ...) and cube
             # maps: a flat value until they're captured
@@ -610,7 +631,7 @@ def _srgb_decode( b, sock ):
     return mix.outputs[0]
 
 
-def build_exact_material( bpy_material, material, ia, images, context, logger=None ):
+def build_exact_material( bpy_material, material, ia, images, context, logger=None, receive=True ):
     '''Replaces the material's graph with the compiled game shader. Returns the Program or
     None when the game files aren't found or the game has no shader for this combination.'''
     scene = context.scene
@@ -622,7 +643,9 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
     except Exception as e:
         if logger: logger.warn( f'could not read the game shaders from {native}: {e}' )
         return None
-    prog, ti = pick_program( db, material, ia, images, scene )
+    # output encode 1 is the fight view; 0 is what the game uses for the super cut-in
+    # close up, drawn on top of the finished frame
+    prog, ti = pick_program( db, material, ia, images, scene, outenc=int( scene.get( 'mt_outenc', 1 ) ), receive=receive )
     if prog is None:
         if logger: logger.warn( f'no game shader for {material.name} ({ia})' )
         return None
@@ -644,14 +667,15 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
     # HDR compress: the scene target holds colour * fHDRCompressEncode, post multiplies by
     # fHDRCompressDecode. Undo it here so the material shows the decoded colour.
     hdr = bind.scene_vec4( scene_prop_name( 'CBHDRFactor__packed0', 0 ) )
+    raw = bool( scene.get( 'mt_debug_raw', 0 ) )
     rgb = []
     for k in range( 3 ):
         c = oc[k]
-        if _is_sock( c ):
+        if _is_sock( c ) and not raw:
             c = bind.m( 'MULTIPLY', c, hdr[1] ) if _uses_hdr( prog ) else c
             rgb.append( _srgb_decode( bind, c ) )
         else:
-            rgb.append( float( c ) )
+            rgb.append( c if _is_sock( c ) else float( c ) )
     comb = bind.node( 'ShaderNodeCombineColor' )
     for k in range( 3 ):
         bind.feed( comb.inputs[k], rgb[k] )
@@ -686,6 +710,7 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
         bpy_material['mt_images'] = json.dumps( { k: v.name for k, v in ( images or {} ).items() if v is not None } )
     except Exception:
         pass
+    bpy_material['mt_receive'] = bool( receive )
     bpy_material['mt_program'] = prog.record
     bpy_material['mt_ps'] = prog.ps_number
     bpy_material['mt_vs'] = prog.vs_number
@@ -760,7 +785,7 @@ def rebuild_all( context, logger=None ):
         try:
             material = StoredMaterial( json.loads( mat['mt_mrl'] ) )
             images = { k: bpy.data.images.get( v ) for k, v in json.loads( mat.get( 'mt_images', '{}' ) ).items() }
-            if build_exact_material( mat, material, mat['mt_ia'], images, context, logger ) is not None:
+            if build_exact_material( mat, material, mat['mt_ia'], images, context, logger, receive=mat.get( 'mt_receive', True ) ) is not None:
                 done += 1
         except Exception as e:
             if logger: logger.warn( f'could not rebuild {mat.name}: {e}' )
@@ -804,8 +829,9 @@ def link_point_light( scene ):
 
 RENDERER_DEFAULTS.update( {
     'fOutlineChannelMask': [ ( 1.0, 0.0, 0.0, 0.0 ) ],
-    'fOutlineColor0': [ ( 0.0, 0.0, 0.0, 1.0 ) ],
-    'CBOutlineFilter__packed9': [ ( 0.0, 0.0, 0.0, 0.0012 ) ],
+    'fOutlineColor0': [ ( 1.0, 1.0, 1.0, 1.0 ) ],
+    # .w is the outline width (times clip w), as captured in the Training Room
+    'CBOutlineFilter__packed9': [ ( 0.0, 0.0001, 0.0, 0.00092 ) ],
 } )
 
 OUTLINE_GROUP = 'MT Outline Hull'
@@ -824,7 +850,7 @@ def outline_group():
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'INPUT' )
     _gn_socket( g, 'Material', 'NodeSocketMaterial', 'INPUT' )
     _gn_socket( g, 'Camera', 'NodeSocketObject', 'INPUT' )
-    s = _gn_socket( g, 'Width', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0012
+    s = _gn_socket( g, 'Width', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.00092
     s = _gn_socket( g, 'Ortho Depth', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
     s = _gn_socket( g, 'Keep Mesh', 'NodeSocketBool', 'INPUT' ); s.default_value = True
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'OUTPUT' )
@@ -969,7 +995,7 @@ def add_outline( obj, ia, context, logger=None, outline_only=False ):
 
 def set_outline_inputs( obj, mod, mat, scene, outline_only ):
     cam = scene.camera
-    width = scene.get( scene_prop_name( 'CBOutlineFilter__packed9', 0 ), [ 0, 0, 0, 0.0012 ] )[3]
+    width = scene.get( scene_prop_name( 'CBOutlineFilter__packed9', 0 ), [ 0, 0, 0, 0.00092 ] )[3]
     for item in ( mod.node_group.interface.items_tree if hasattr( mod.node_group, 'interface' ) else mod.node_group.inputs ):
         ident = getattr( item, 'identifier', None )
         nm = getattr( item, 'name', '' )
@@ -995,3 +1021,61 @@ def refresh_outlines( context ):
             continue
         mat = bpy.data.materials.get( 'MT Outline@%s' % obj.get( 'mt_outline_ia', '' ) )
         set_outline_inputs( obj, mod, mat, context.scene, obj.get( 'mt_outline_only', False ) )
+
+
+
+# ----------------------------------------------------------------------------------------
+# renderer constants from a FrameCapture (umvc3_framecapture.asi + decode_capture.py)
+# ----------------------------------------------------------------------------------------
+
+MATERIAL_CBUFFERS = ( '$Globals', 'Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
+
+def load_capture_constants( scene, draws_json, draw_indices, native_dir ):
+    """Copies every renderer side pixel shader constant (lights, rim, ambient, HDR, cut-in,
+    light mask selector ...) the game set on the given draws into the scene props, so the
+    compiled shaders get the exact in-game values. Material cbuffers stay from the MRL."""
+    db = mtshaders.ShaderDB.get( native_dir )
+    draws = json.load( open( draws_json ) ) if isinstance( draws_json, str ) else draws_json
+    loc = { g: i for i, g in enumerate( db.spk.ps_global ) }
+    # a few values differ between passes (the alpha pass picks another light mask channel),
+    # so each row takes the value most of the draws used
+    import collections
+    votes = collections.defaultdict( collections.Counter )
+    for di in draw_indices:
+        d = draws[di]
+        if d.get( 'ps' ) is None or d['ps'] not in loc:
+            continue
+        sh = db.spk.ps( loc[d['ps']] )
+        F = d['ps_raw']
+        for c in ( sh.ctab['consts'] if sh.ctab else [] ):
+            if c['set'] != 2:
+                continue
+            cb, off = mtshaders.ctab_location( c['name'] )
+            if cb in MATERIAL_CBUFFERS:
+                continue
+            for r in range( c['cnt'] ):
+                votes[scene_prop_name( c['name'], r )][tuple( float( x ) for x in F[c['idx'] + r] )] += 1
+    for key, cnt in votes.items():
+        scene[key] = list( cnt.most_common( 1 )[0][0] )
+    sync_lighting_from_constants( scene )
+    return len( votes )
+
+def sync_lighting_from_constants( scene ):
+    '''The key sun, rim and ambient panel values drive some of the constants; push the
+    loaded values back into them so the drivers keep what was loaded.'''
+    from . import mt_shading
+    g = lambda name, row=0: scene.get( scene_prop_name( name, row ) )
+    lp1, lp2 = g( 'sLightParam0', 1 ), g( 'sLightParam0', 2 )
+    if lp1 is not None:
+        mt_shading.set_key_light_direction( scene, mt_shading.mt_to_blender( tuple( lp1[:3] ) ) )
+    if lp2 is not None:
+        mt_shading.set_key_light_color( scene, tuple( lp2[:3] ) )
+    rim = g( 'fRimLightColorFactor' )
+    if rim is not None:
+        scene['mt_rim_color'] = tuple( rim[:3] )
+    toon = g( 'CBToon__packed0' )
+    if toon is not None:
+        scene['mt_rim_min_height'], scene['mt_rim_max_height'], scene['mt_rim_power'] = float( toon[0] ), float( toon[1] ), float( toon[2] )
+    amb = g( 'CBAmbient__packed0' )
+    if amb is not None:
+        scene['mt_ambient'] = tuple( amb[:3] )

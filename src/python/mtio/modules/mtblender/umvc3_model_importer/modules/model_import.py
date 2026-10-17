@@ -177,12 +177,14 @@ class SUB_PT_Model_Import_Rendering(Panel):
                 layout.label(text='Game Shaders')
                 row = layout.row(align=True)
                 row.prop(mip, 'mt_point_light')
-                for key, label in (('mt_light_mask', 'Light Mask'),):
+                for key, label in (('mt_light_mask', 'Light Mask'), ('mt_outenc', 'Shader Set (1 fight, 0 super cut-in)')):
                     if key in scene.keys():
                         row = layout.row(align=True)
                         row.prop(scene, '["%s"]' % key, text=label)
                 row = layout.row(align=True)
                 row.operator(SUB_OP_RebuildGameShaders.bl_idname, icon='FILE_REFRESH', text='Rebuild Game Shaders')
+                row = layout.row(align=True)
+                row.operator(SUB_OP_RenderGamePost.bl_idname, icon='RENDER_STILL', text='Render With Game Bloom')
 
 
 class SUB_OP_RebuildGameShaders(bpy.types.Operator):
@@ -197,6 +199,31 @@ class SUB_OP_RebuildGameShaders(bpy.types.Operator):
         from .blender_plugin import plugin
         n = mt_exact.rebuild_all(context, plugin.logger)
         self.report({'INFO'}, f'rebuilt {n} materials')
+        return {'FINISHED'}
+
+
+class SUB_OP_RenderGamePost(bpy.types.Operator):
+    """Render, then run the game's own post processing (bloom, HDR decode) on the result, matching the in-game frame. The result opens as the image 'MT Game Render'"""
+
+    bl_idname = "sub.mt_render_game_post"
+    bl_label = "Render With Game Bloom"
+
+    def execute(self, context):
+        from . import mt_post
+        from .blender_plugin import plugin
+        if not context.scene.get('mt_game_native_dir'):
+            self.report({'ERROR'}, 'Import with Game Shaders (exact) first')
+            return {'CANCELLED'}
+        try:
+            im = mt_post.render_with_post(context, log=plugin.logger.debug if hasattr(plugin.logger, 'debug') else None)
+        except Exception as e:
+            self.report({'ERROR'}, 'game post failed: %s' % e)
+            return {'CANCELLED'}
+        for area in context.screen.areas if context.screen else []:
+            if area.type == 'IMAGE_EDITOR':
+                area.spaces.active.image = im
+                break
+        self.report({'INFO'}, 'saved to image "%s"' % im.name)
         return {'FINISHED'}
 
 

@@ -142,7 +142,8 @@ class BlenderModelImporter(ModelImporterBase):
         if not hasattr( self, 'importedMeshObjects' ):
             self.importedMeshObjects = []
         self.importedMeshObjects.append( obj )
-        obj.data.materials.append( self._materialForPrimitive( primitive.indices.getMaterialIndex(), shaderInfo.name, context ) )
+        obj.data.materials.append( self._materialForPrimitive( primitive.indices.getMaterialIndex(), shaderInfo.name, context,
+                                                                mt_exact.receives_shadows( getattr( primitive, 'flags', 0xffff ) ) ) )
         if self._wantsExact( context ):
             # the game's outline pass; the IASkinBridge meshes exist only for it
             try:
@@ -665,6 +666,18 @@ class BlenderModelImporter(ModelImporterBase):
             return
         context.scene['mt_game_native_dir'] = native
         self.logger.info( f'using the game shaders from {native}' )
+        scene = context.scene
+        if 'mt_outenc' not in scene.keys():
+            scene['mt_outenc'] = 1
+        if not scene.get( 'mt_exact_defaults' ):
+            # first exact import in this scene: start from what the game used and show it in
+            # the rim / ambient panel values that drive those constants
+            try:
+                mt_exact.ensure_renderer_props( scene )
+                mt_exact.sync_lighting_from_constants( scene )
+                scene['mt_exact_defaults'] = 1
+            except Exception as e:
+                self.logger.warn( f'could not set the game renderer defaults: {e}' )
 
     def _rememberForExact( self, bpy_material, material, context ):
         if not self._wantsExact( context ):
@@ -685,11 +698,11 @@ class BlenderModelImporter(ModelImporterBase):
                 images[cmd.name] = img
         self._exactInfo[bpy_material.name] = ( material, images )
 
-    def _materialForPrimitive( self, matIndex, ia, context ):
+    def _materialForPrimitive( self, matIndex, ia, context, receive=True ):
         base = self.editorMaterialArray[matIndex].unwrap()
         if not self._wantsExact( context ) or base.name not in self._exactInfo:
             return base
-        key = ( matIndex, ia )
+        key = ( matIndex, ia, receive )
         if key in self._exactMaterials:
             return self._exactMaterials[key]
         material, images = self._exactInfo[base.name]
@@ -697,9 +710,9 @@ class BlenderModelImporter(ModelImporterBase):
         used = [ k for k in self._exactMaterials if k[0] == matIndex ]
         mat = base if not used else base.copy()
         if used:
-            mat.name = f'{base.name}@{ia}'
+            mat.name = f'{base.name}@{ia}' + ( '' if receive else '@noshadow' )
         try:
-            prog = mt_exact.build_exact_material( mat, material, ia, images, context, self.logger )
+            prog = mt_exact.build_exact_material( mat, material, ia, images, context, self.logger, receive=receive )
         except Exception as e:
             prog = None
             self.logger.warn( f'could not compile the game shader for {mat.name}: {e}' )
