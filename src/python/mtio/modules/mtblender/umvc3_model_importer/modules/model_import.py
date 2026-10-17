@@ -183,7 +183,7 @@ class SUB_PT_Model_Import_Rendering(Panel):
                         row.prop(scene, '["%s"]' % key, text=label)
                 if 'mt_face_group' in scene.keys():
                     row = layout.row(align=True)
-                    row.prop(scene, '["mt_face_group"]', text='Face Group (71 fight, 70 cut-in)')
+                    row.prop(scene, '["mt_face_group"]', text='Face Group (70 default)')
                     row.operator(SUB_OP_ApplyFaceGroup.bl_idname, icon='HIDE_OFF', text='')
                 row = layout.row(align=True)
                 row.operator(SUB_OP_RebuildGameShaders.bl_idname, icon='FILE_REFRESH', text='Rebuild Game Shaders')

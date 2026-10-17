@@ -668,6 +668,10 @@ class BlenderModelImporter(ModelImporterBase):
         context.scene['mt_game_native_dir'] = native
         self.logger.info( f'using the game shaders from {native}' )
         scene = context.scene
+        try:
+            mt_exact.ensure_game_camera( scene, getattr( mip, 'model_scale', 1.0 ) or 1.0 )
+        except Exception as e:
+            self.logger.warn( f'could not add the game camera: {e}' )
         if 'mt_outenc' not in scene.keys():
             scene['mt_outenc'] = 1
         if not scene.get( 'mt_exact_defaults' ):

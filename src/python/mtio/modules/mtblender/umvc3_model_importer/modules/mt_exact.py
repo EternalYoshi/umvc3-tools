@@ -1013,6 +1013,12 @@ def set_outline_inputs( obj, mod, mat, scene, outline_only ):
             elif nm == 'Keep Mesh': mod[ident] = not outline_only
         except Exception:
             pass
+    # setting socket values through id properties doesn't rebuild the depsgraph relations,
+    # so the hull wouldn't follow the camera when it moves; re-assigning the node group does
+    try:
+        mod.node_group = mod.node_group
+    except Exception:
+        pass
     obj.update_tag()
 
 def refresh_outlines( context ):
@@ -1087,22 +1093,22 @@ def sync_lighting_from_constants( scene ):
 # primitive groups
 # ----------------------------------------------------------------------------------------
 # Character models carry every face expression as its own copy of the head, one primitive
-# group each (70, 71, 73, 75 on Ryu and Wesker). The game draws one of them: 71 in the fight
-# captures, 70 for the super cut-in. Group 127 holds a placeholder the game never draws.
+# group each (70, 71, 73, 75 on Ryu and Wesker). The game draws one of them; 70 is the
+# default face. Group 127 holds a placeholder the game never draws.
 FACE_GROUPS = range( 70, 80 )
 UNUSED_GROUPS = ( 127, )
 
 def apply_face_group( scene, objects=None ):
-    """Shows the face expression group picked in scene['mt_face_group'] (default 71) and hides
+    """Shows the face expression group picked in scene['mt_face_group'] (default 70) and hides
     the other expressions and unused groups, with their outlines. Returns how many it hid."""
     if 'mt_face_group' not in scene.keys():
-        scene['mt_face_group'] = 71
+        scene['mt_face_group'] = 70
     face = int( scene['mt_face_group'] )
     objs = objects if objects else [ o for o in scene.objects if o.type == 'MESH' and 'mt_group' in o.keys() ]
     present = { int( o['mt_group'] ) for o in objs if 'mt_group' in o.keys() }
     faces = sorted( g for g in present if g in FACE_GROUPS )
     if faces and face not in faces:
-        face = 71 if 71 in faces else faces[0]
+        face = 70 if 70 in faces else faces[0]
     hidden = 0
     for o in objs:
         if 'mt_group' not in o.keys():
@@ -1113,3 +1119,48 @@ def apply_face_group( scene, objects=None ):
         o.hide_render = hide
         hidden += hide
     return hidden
+
+
+# the outline width follows the camera's depth (clip w), so the hulls have to know which
+# camera that is; repoint them whenever the scene camera changes
+_last_camera = {}
+
+@bpy.app.handlers.persistent
+def _camera_watch( scene, depsgraph=None ):
+    try:
+        cam = scene.camera.name if scene.camera else ''
+        if _last_camera.get( scene.name ) != cam:
+            _last_camera[scene.name] = cam
+            if any( o.type == 'MESH' and o.modifiers.get( 'MT Outline' ) for o in scene.objects ):
+                refresh_outlines( bpy.context )
+    except Exception:
+        pass
+
+def register_handlers():
+    if _camera_watch not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append( _camera_watch )
+
+def unregister_handlers():
+    if _camera_watch in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove( _camera_watch )
+
+
+def ensure_game_camera( scene, unit_scale=1.0 ):
+    """The outline width is the camera depth times CBOutlineFilter[9].w, so the hulls need a
+    camera. With none in the scene, add one where the Training Room fight camera sits
+    (MT eye (0, 70, 525), looking up 7 degrees, 32 degree vertical fov). Returns it."""
+    if scene.camera is not None:
+        return scene.camera
+    import math, mathutils
+    cam = bpy.data.objects.new( 'MT Game Camera', bpy.data.cameras.new( 'MT Game Camera' ) )
+    scene.collection.objects.link( cam )
+    cam.data.sensor_fit = 'VERTICAL'
+    cam.data.angle_y = math.radians( 32.0 )
+    cam.data.clip_start = 1.0 * unit_scale
+    cam.data.clip_end = 10000.0 * unit_scale
+    cam.location = mathutils.Vector( ( 0.0, -525.0, 70.0 ) ) * unit_scale
+    fwd = mathutils.Vector( ( 0.0, 0.9923, 0.1238 ) )
+    cam.rotation_mode = 'QUATERNION'
+    cam.rotation_quaternion = fwd.to_track_quat( '-Z', 'Y' )
+    scene.camera = cam
+    return cam

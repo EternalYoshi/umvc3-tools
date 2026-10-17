@@ -68,6 +68,11 @@ def registerAddonModules():
         bpy.utils.register_class(cls)
 
     properties.register()
+    try:
+        from .modules import mt_exact
+        mt_exact.register_handlers()
+    except Exception as e:
+        print(f'umvc3-tools: outline camera handler not registered: {e}')
     _modulesRegistered = True
 
     print('\nLoaded!')
@@ -78,6 +83,11 @@ def unregisterAddonModules():
     if not _modulesRegistered:
         return
 
+    try:
+        from .modules import mt_exact
+        mt_exact.unregister_handlers()
+    except Exception:
+        pass
     from .bpy_classes import classes
     for cls in reversed(classes):
         try:
