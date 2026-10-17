@@ -181,6 +181,10 @@ class SUB_PT_Model_Import_Rendering(Panel):
                     if key in scene.keys():
                         row = layout.row(align=True)
                         row.prop(scene, '["%s"]' % key, text=label)
+                if 'mt_face_group' in scene.keys():
+                    row = layout.row(align=True)
+                    row.prop(scene, '["mt_face_group"]', text='Face Group (71 fight, 70 cut-in)')
+                    row.operator(SUB_OP_ApplyFaceGroup.bl_idname, icon='HIDE_OFF', text='')
                 row = layout.row(align=True)
                 row.operator(SUB_OP_RebuildGameShaders.bl_idname, icon='FILE_REFRESH', text='Rebuild Game Shaders')
                 row = layout.row(align=True)
@@ -199,6 +203,20 @@ class SUB_OP_RebuildGameShaders(bpy.types.Operator):
         from .blender_plugin import plugin
         n = mt_exact.rebuild_all(context, plugin.logger)
         self.report({'INFO'}, f'rebuilt {n} materials')
+        return {'FINISHED'}
+
+
+class SUB_OP_ApplyFaceGroup(bpy.types.Operator):
+    """Show only the picked face expression group (each expression is a full copy of the head; the game draws one)"""
+
+    bl_idname = "sub.mt_apply_face_group"
+    bl_label = "Show Face Group"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        from . import mt_exact
+        n = mt_exact.apply_face_group(context.scene)
+        self.report({'INFO'}, f'face group {context.scene.get("mt_face_group")}, {n} primitives hidden')
         return {'FINISHED'}
 
 

@@ -1081,3 +1081,35 @@ def sync_lighting_from_constants( scene ):
     amb = g( 'CBAmbient__packed0' )
     if amb is not None:
         scene['mt_ambient'] = tuple( amb[:3] )
+
+
+# ----------------------------------------------------------------------------------------
+# primitive groups
+# ----------------------------------------------------------------------------------------
+# Character models carry every face expression as its own copy of the head, one primitive
+# group each (70, 71, 73, 75 on Ryu and Wesker). The game draws one of them: 71 in the fight
+# captures, 70 for the super cut-in. Group 127 holds a placeholder the game never draws.
+FACE_GROUPS = range( 70, 80 )
+UNUSED_GROUPS = ( 127, )
+
+def apply_face_group( scene, objects=None ):
+    """Shows the face expression group picked in scene['mt_face_group'] (default 71) and hides
+    the other expressions and unused groups, with their outlines. Returns how many it hid."""
+    if 'mt_face_group' not in scene.keys():
+        scene['mt_face_group'] = 71
+    face = int( scene['mt_face_group'] )
+    objs = objects if objects else [ o for o in scene.objects if o.type == 'MESH' and 'mt_group' in o.keys() ]
+    present = { int( o['mt_group'] ) for o in objs if 'mt_group' in o.keys() }
+    faces = sorted( g for g in present if g in FACE_GROUPS )
+    if faces and face not in faces:
+        face = 71 if 71 in faces else faces[0]
+    hidden = 0
+    for o in objs:
+        if 'mt_group' not in o.keys():
+            continue
+        g = int( o['mt_group'] )
+        hide = g in UNUSED_GROUPS or ( g in FACE_GROUPS and g != face )
+        o.hide_viewport = hide
+        o.hide_render = hide
+        hidden += hide
+    return hidden

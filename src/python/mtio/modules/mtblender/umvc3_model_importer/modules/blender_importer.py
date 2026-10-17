@@ -246,6 +246,7 @@ class BlenderModelImporter(ModelImporterBase):
         # rebuild the game tangent from these coefficients in any pose (exact in the bind pose).
         self._storeTangentFrame( mesh )
         
+        obj['mt_group'] = int( primitive.indices.getGroupId() )
         # parent to group
         if primitive.indices.getGroupId() in self.editorGroupLookup:
             group = self.editorGroupLookup[primitive.indices.getGroupId()].unwrap()
@@ -1211,6 +1212,13 @@ class BlenderModelImporter(ModelImporterBase):
                 self.logger.warn( f'could not set up MT lighting: {e}' )
             self._setupExact( modFilePath, context )
         super().importModel(modFilePath, context)
+        try:
+            # every face expression is in the file, one group each; the game shows one
+            n = mt_exact.apply_face_group( context.scene, getattr( self, 'importedMeshObjects', [] ) )
+            if n:
+                self.logger.info( f'hid {n} primitives of the other face expressions / unused groups' )
+        except Exception as e:
+            self.logger.warn( f'could not pick the face expression: {e}' )
         if self._wantsExact( context ):
             try:
                 mt_exact.link_scene_drivers( context.scene )
