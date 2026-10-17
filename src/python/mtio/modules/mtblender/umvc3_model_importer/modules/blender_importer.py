@@ -185,6 +185,16 @@ class BlenderModelImporter(ModelImporterBase):
             except Exception as e:
                 self.logger.debug( 'could not create occlusion attribute: ' + str( e ) )
         
+        tan = vertexData.tangentArray or []
+        if len( tan ) == len( verts ):
+            try:
+                attr = mesh.attributes.new( name='mt_tangent', type='FLOAT_VECTOR', domain='POINT' )
+                attr.data.foreach_set( 'vector', [ c for t in tan for c in t[:3] ] )
+                attr = mesh.attributes.new( name='mt_tangent_sign', type='FLOAT', domain='POINT' )
+                attr.data.foreach_set( 'value', [ float( t[3] ) for t in tan ] )
+            except Exception as e:
+                self.logger.debug( 'could not create tangent attributes: ' + str( e ) )
+
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         # apply weights
@@ -229,6 +239,11 @@ class BlenderModelImporter(ModelImporterBase):
 
             if hasattr( mesh, 'use_auto_smooth' ):
                 mesh.use_auto_smooth = True
+
+        # The game's tangent frame, expressed in Blender's own (MikkTSpace) frame per face
+        # corner. Both frames follow the surface when the mesh deforms, so the shader can
+        # rebuild the game tangent from these coefficients in any pose (exact in the bind pose).
+        self._storeTangentFrame( mesh )
         
         # parent to group
         if primitive.indices.getGroupId() in self.editorGroupLookup:
@@ -600,6 +615,35 @@ class BlenderModelImporter(ModelImporterBase):
         r'C:\Steam\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
         r'D:\SteamLibrary\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
     )
+
+    def _storeTangentFrame( self, mesh ):
+        if 'mt_tangent' not in mesh.attributes or 'UVPrimary' not in mesh.uv_layers:
+            return
+        try:
+            mesh.calc_tangents( uvmap='UVPrimary' )
+        except Exception as e:
+            self.logger.debug( f'no tangent frame for {mesh.name}: {e}' )
+            return
+        gt = mesh.attributes['mt_tangent'].data
+        gs = mesh.attributes['mt_tangent_sign'].data
+        coef, sign = [], []
+        for l in mesh.loops:
+            t = mathutils.Vector( gt[l.vertex_index].vector )
+            if t.length > 1e-8:
+                t.normalize()
+            coef.extend( ( t.dot( l.tangent ), t.dot( l.bitangent ), t.dot( l.normal ) ) )
+            sign.append( 1.0 if gs[l.vertex_index].value >= 0 else -1.0 )
+        try:
+            a = mesh.attributes.new( name='mt_tan_coef', type='FLOAT_VECTOR', domain='CORNER' )
+            a.data.foreach_set( 'vector', coef )
+            a = mesh.attributes.new( name='mt_tan_sign', type='FLOAT', domain='CORNER' )
+            a.data.foreach_set( 'value', sign )
+        except Exception as e:
+            self.logger.debug( f'could not store the tangent frame for {mesh.name}: {e}' )
+        try:
+            mesh.free_tangents()
+        except Exception:
+            pass
 
     def _wantsExact( self, context ):
         try:

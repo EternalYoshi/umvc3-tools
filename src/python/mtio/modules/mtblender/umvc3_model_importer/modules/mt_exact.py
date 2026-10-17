@@ -278,6 +278,42 @@ class Bind:
             self.cache[key] = self.mt_axes( nm.outputs['Normal'] )
         return self.cache[key]
 
+    def game_frame( self ):
+        '''(tangent, binormal) in MT axes, as the game's vertex shader makes them: its own
+        stored tangent, binormal = normalize(cross(N, T) * sign). Rebuilt from the per corner
+        coefficients the importer stored against Blender's tangent frame; meshes without
+        them fall back to Blender's frame.'''
+        if 'gframe' in self.cache:
+            return self.cache['gframe']
+        geo = self.geometry()
+        nm_t = self.node( 'ShaderNodeNormalMap', space='TANGENT' )
+        nm_b = self.node( 'ShaderNodeNormalMap', space='TANGENT' )
+        for nm, col in ( ( nm_t, ( 1.0, 0.5, 0.5, 1.0 ) ), ( nm_b, ( 0.5, 1.0, 0.5, 1.0 ) ) ):
+            try:
+                nm.uv_map = 'UVPrimary'
+            except Exception:
+                pass
+            nm.inputs['Color'].default_value = col
+        T_b, B_b, N_b = nm_t.outputs['Normal'], nm_b.outputs['Normal'], geo.outputs['Normal']
+        coef = self.node( 'ShaderNodeAttribute', attribute_type='GEOMETRY', attribute_name='mt_tan_coef' )
+        sgn = self.node( 'ShaderNodeAttribute', attribute_type='GEOMETRY', attribute_name='mt_tan_sign' )
+        cx, cy, cz = self.sep( coef.outputs['Vector'] )
+        Tg = self.vmath( 'ADD', self.vmath( 'ADD', self.vmath( 'SCALE', T_b, cx ), self.vmath( 'SCALE', B_b, cy ) ),
+                         self.vmath( 'SCALE', N_b, cz ) )
+        Tg = self.vmath( 'NORMALIZE', Tg )
+        have = self.m( 'GREATER_THAN', self.vmath( 'LENGTH', coef.outputs['Vector'] ), 0.5 )
+        mixT = self.node( 'ShaderNodeMix', data_type='VECTOR' )
+        self.feed( mixT.inputs[0], have ); self.feed( mixT.inputs[4], T_b ); self.feed( mixT.inputs[5], Tg )
+        T = self.vmath( 'NORMALIZE', mixT.outputs[1] )
+        # sign: the game's when stored, else Blender's (both define it as sign * cross(N, T)
+        # and agree on it for 99% of corners)
+        s_have = self.m( 'MULTIPLY', sgn.outputs['Fac'], have )
+        Bg = self.vmath( 'SCALE', self.vmath( 'NORMALIZE', self.vmath( 'CROSS_PRODUCT', N_b, T ) ), s_have )
+        mixB = self.node( 'ShaderNodeMix', data_type='VECTOR' )
+        self.feed( mixB.inputs[0], have ); self.feed( mixB.inputs[4], B_b ); self.feed( mixB.inputs[5], Bg )
+        self.cache['gframe'] = ( self.mt_axes( T ), self.mt_axes( mixB.outputs[1] ) )
+        return self.cache['gframe']
+
     def uv( self ):
         if 'uv' not in self.cache:
             u = self.node( 'ShaderNodeUVMap' )
@@ -310,11 +346,9 @@ class Bind:
         elif s.startswith( 'pos.' ):
             v = self._vec( 'pos', lambda: self.mt_axes( geo.outputs['Position'], scale=True ) )[comp]
         elif s.startswith( 'tangent.' ):
-            v = self.frame_vec( 'tangent' )[comp]
+            v = self.game_frame()[0][comp]
         elif s.startswith( 'binormal.' ):
-            # game v points down, blender's up, so the game binormal is blender's negated
-            b = self.frame_vec( 'bitangent' )[comp]
-            v = self.m( 'MULTIPLY', b, -1.0 )
+            v = self.game_frame()[1][comp]
         elif s.startswith( 'view.' ):
             v = self._vec( 'view', lambda: self.mt_axes( self.vmath( 'SCALE', geo.outputs['Incoming'], -1.0 ) ) )[comp]
         elif s.startswith( 'eyevec.' ):

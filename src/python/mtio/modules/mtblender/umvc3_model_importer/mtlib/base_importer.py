@@ -31,6 +31,9 @@ class DecodedVertexData:
     # input on TB layouts), decoded the same way the vertex shader reads it. The pixel
     # shaders multiply the lit diffuse by it, so it's baked AO, not padding.
     occlusionArray: list = None
+    # game tangents (x, y, z, sign), transformed like the normals. Blender works out its own
+    # tangent frame from the uvs; these let the two be compared / used directly.
+    tangentArray: list = None
 
 @dataclass
 class PreprocessedWeightData:
@@ -117,6 +120,7 @@ class ModelImporterBase(ABC):
         editorJointArray = self.createArray()
         editorColorArray = self.createArray()
         occlusionArray = []
+        tangentArray = []
 
         self.logger.debug( 'decoding vertices' )
         # vertexBufferOffset + (indexStartIndex + vertexStartIndex) * stride equals the running byte total
@@ -151,6 +155,12 @@ class ModelImporterBase(ABC):
                         editorNormalArray.append( self.convertNclVec3ToPoint3( nrm ) )
                     elif key == 'Occlusion':
                         vtxOcclusion = float( vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[0] )
+                    elif key == 'Tangent' and inputInfo.componentCount == 4 and inputInfo.type != 11:
+                        t = [ float( vertexcodec.decodeVertexComponent( inputInfo.type, vertexStream )[0] ) for _ in range( 4 ) ]
+                        tv = NclVec3( ( t[0], t[1], t[2] ) )
+                        if not self.config.debugDisableTransform:
+                            tv = nclNormalize( nclTransform( tv, self.modelMtxNormal ) )
+                        tangentArray.append( ( tv[0], tv[1], tv[2], t[3] ) )
                     elif key == 'Joint':
                         if editorVtxJointArray == None:
                             editorVtxJointArray = self.createArray()
@@ -197,7 +207,8 @@ class ModelImporterBase(ABC):
             editorWeightArray,
             editorJointArray,
             editorColorArray,
-            occlusionArray
+            occlusionArray,
+            tangentArray
         )
             
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:
