@@ -687,7 +687,9 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
     if material.isAlphaBlended():
         alpha = oc[3]
     if kill is not None:
-        keep = bind.m( 'LESS_THAN', kill, 0.0 ) if _is_sock( kill ) else ( 1.0 if kill < 0 else 0.0 )
+        # texkill only drops pixels with a component below 0; the shader's cmp writes -0 for kept
+        # pixels, so a kill value of exactly 0 has to survive
+        keep = bind.m( 'SUBTRACT', 1.0, bind.m( 'GREATER_THAN', kill, 0.0 ) ) if _is_sock( kill ) else ( 0.0 if kill > 0 else 1.0 )
         alpha = bind.m( 'MULTIPLY', keep, alpha ) if ( _is_sock( keep ) or _is_sock( alpha ) ) else keep * alpha
     if alpha == 1.0:
         tree.links.new( emit.outputs[0], out.inputs['Surface'] )
