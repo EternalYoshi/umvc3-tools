@@ -95,6 +95,12 @@ class UMVC3ModelImportProperties(PropertyGroup):
         min=0.0,
         max=20.0,
     )
+    mt_key_light: PointerProperty(
+        name='Key Light',
+        description='Sun lamp the MT materials take their light direction and colour from (colour times strength)',
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'LIGHT' and obj.data.type == 'SUN',
+    )
     import_toon_shading: BoolProperty(
         name='MT Shading',
         description='Rebuild each material with the game\'s own shading (toon ramps, half lambert, rim light, specular, colour correct) from the mrl. Works in Eevee and Cycles. Sets the view transform to Standard so colours match the game',

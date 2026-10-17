@@ -151,11 +151,18 @@ class SUB_PT_Model_Import_Rendering(Panel):
         row = layout.row(align=True)
         row.operator(SUB_OP_LoadStageLighting.bl_idname, icon='LIGHT_SUN', text='Load Stage Lighting (sdl folder)')
         if 'mt_light_color' in scene.keys():
-            for key, label in (('mt_light_color', 'Key Light'), ('mt_ambient', 'Ambient'),
+            row = layout.row(align=True)
+            row.prop(mip, 'mt_key_light')
+            sun = mip.mt_key_light
+            if sun is not None and sun.type == 'LIGHT':
+                row = layout.row(align=True)
+                row.prop(sun.data, 'color', text='Colour')
+                row.prop(sun.data, 'energy', text='Strength')
+            for key, label in (('mt_ambient', 'Ambient'),
                                ('mt_rim_color', 'Rim Colour'), ('mt_rim_power', 'Rim Power')):
                 row = layout.row(align=True)
                 row.prop(scene, '["%s"]' % key, text=label)
-            layout.label(text='Rotate the "MT Key Light" empty to move the light')
+            layout.label(text='Rotate the key light sun to move the light')
 
 
 class SUB_OP_LoadStageLighting(bpy.types.Operator):

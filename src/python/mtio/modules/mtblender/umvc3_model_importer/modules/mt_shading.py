@@ -14,8 +14,10 @@ Two node groups, built once per blend file:
 Lighting comes from the scene, the way the game gets it from the stage SDL: a directional
 key light, its colour, a flat ambient, and the ToonLight rim colour and power. They live
 as custom properties on the scene (mt_light_dir, ...) that the groups read with View Layer
-attribute nodes, and the 'MT Key Light' empty drives the direction. load_stage_lighting()
-fills them from a stage's sdl folder.
+attribute nodes. A sun lamp drives the key light (direction from its rotation, colour from
+its colour times strength), 'MT Key Light' by default or any sun picked in the panel, so
+the scene's own sun lights MT and regular materials alike. load_stage_lighting() fills
+everything from a stage's sdl folder.
 
 The maths runs on raw texture values like the game does (it lights in gamma space), and the
 group converts the result with the sRGB curve at the end, so with the scene's view transform
@@ -68,47 +70,95 @@ def ensure_scene_lighting( scene, unit_scale=None ):
         scene['mt_unit_scale'] = float( unit_scale )
     ensure_key_light( scene )
 
-def ensure_key_light( scene ):
-    '''An arrow empty whose +Z points at the light. Rotating it drives mt_light_dir.'''
+def _is_sun( obj ):
+    return obj is not None and obj.type == 'LIGHT' and obj.data is not None and obj.data.type == 'SUN'
+
+def key_light( scene ):
+    '''The sun lamp the MT materials follow: the one picked in the panel, else 'MT Key Light'.'''
+    mip = getattr( scene, 'sub_scene_properties', None )
+    obj = getattr( mip, 'mt_key_light', None ) if mip is not None else None
+    if _is_sun( obj ):
+        return obj
     obj = bpy.data.objects.get( KEY_LIGHT_NAME )
+    return obj if _is_sun( obj ) else None
+
+def ensure_key_light( scene ):
+    '''Makes sure a sun lamp drives the MT lighting. Any sun in the scene can be picked in the
+    panel; its rotation sets mt_light_dir and its colour times strength sets mt_light_color,
+    so it lights MT materials and regular Blender materials the same way.'''
+    obj = key_light( scene )
     if obj is None:
-        obj = bpy.data.objects.new( KEY_LIGHT_NAME, None )
-        obj.empty_display_type = 'SINGLE_ARROW'
-        obj.empty_display_size = 1.0
+        old = bpy.data.objects.get( KEY_LIGHT_NAME )
+        direction = scene.get( 'mt_light_dir', SCENE_DEFAULTS['mt_light_dir'] )
+        if old is not None:
+            # blends from before this change have an arrow empty here, keep its direction
+            if old.type == 'EMPTY':
+                direction = tuple( old.matrix_world.col[2][:3] )
+            old.name = KEY_LIGHT_NAME + ' (old)'
+        sun = bpy.data.lights.new( KEY_LIGHT_NAME, 'SUN' )
+        obj = bpy.data.objects.new( KEY_LIGHT_NAME, sun )
         scene.collection.objects.link( obj )
-        set_key_light_direction( scene, scene.get( 'mt_light_dir', SCENE_DEFAULTS['mt_light_dir'] ) )
-    _drive_light_dir( scene, obj )
+        set_key_light_direction( scene, direction, obj )
+        set_key_light_color( scene, scene.get( 'mt_light_color', SCENE_DEFAULTS['mt_light_color'] ), obj )
+    mip = getattr( scene, 'sub_scene_properties', None )
+    if mip is not None and hasattr( mip, 'mt_key_light' ) and not _is_sun( mip.mt_key_light ):
+        mip.mt_key_light = obj
+    _drive_from_key_light( scene )
     return obj
 
-def set_key_light_direction( scene, direction ):
+def set_key_light_direction( scene, direction, obj=None ):
     d = mathutils.Vector( direction )
     if d.length < 1e-8:
         return
     d.normalize()
     scene['mt_light_dir'] = tuple( d )
-    obj = bpy.data.objects.get( KEY_LIGHT_NAME )
+    obj = obj or key_light( scene )
     if obj is not None:
+        # a sun shines down its -Z, so +Z points at the light like the game's mDir
         obj.rotation_mode = 'QUATERNION'
         obj.rotation_quaternion = d.to_track_quat( 'Z', 'Y' )
 
-def _drive_light_dir( scene, obj ):
+def set_key_light_color( scene, color, obj=None ):
+    c = [ float( x ) for x in tuple( color )[:3] ]
+    scene['mt_light_color'] = tuple( c )
+    obj = obj or key_light( scene )
+    if obj is not None:
+        strength = max( c ) if max( c ) > 0 else 0.0
+        obj.data.color = [ x / strength for x in c ] if strength > 0 else ( 1.0, 1.0, 1.0 )
+        obj.data.energy = strength
+
+def _drive_from_key_light( scene ):
+    '''Drivers on the scene props, read through the panel's key light pointer, so picking a
+    different sun retargets every MT material at once.'''
+    if not hasattr( getattr( scene, 'sub_scene_properties', None ), 'mt_key_light' ):
+        return
+    for prop in ( 'mt_light_dir', 'mt_light_color' ):
+        try:
+            scene.driver_remove( '["%s"]' % prop )
+        except Exception:
+            pass
+    base = 'sub_scene_properties.mt_key_light'
     try:
-        if scene.animation_data is not None:
-            for fc in scene.animation_data.drivers:
-                if fc.data_path == '["mt_light_dir"]':
-                    return
         for i in range( 3 ):
-            fc = scene.driver_add( '["mt_light_dir"]', i )
-            drv = fc.driver
+            drv = scene.driver_add( '["mt_light_dir"]', i ).driver
             drv.type = 'SCRIPTED'
             var = drv.variables.new()
             var.name = 'z'
-            var.type = 'SINGLE_PROP'
-            var.targets[0].id_type = 'OBJECT'
-            var.targets[0].id = obj
-            # RNA matrices are column major, so [2][i] is component i of the empty's +Z axis
-            var.targets[0].data_path = 'matrix_world[2][%d]' % i
+            var.targets[0].id_type = 'SCENE'
+            var.targets[0].id = scene
+            # RNA matrices are column major, so [2][i] is component i of the sun's +Z axis
+            var.targets[0].data_path = '%s.matrix_world[2][%d]' % ( base, i )
             drv.expression = 'z'
+
+            drv = scene.driver_add( '["mt_light_color"]', i ).driver
+            drv.type = 'SCRIPTED'
+            for name, path in ( ( 'c', '%s.data.color[%d]' % ( base, i ) ), ( 'e', '%s.data.energy' % base ) ):
+                var = drv.variables.new()
+                var.name = name
+                var.targets[0].id_type = 'SCENE'
+                var.targets[0].id = scene
+                var.targets[0].data_path = path
+            drv.expression = 'c * e'
     except Exception:
         pass
 
@@ -189,7 +239,7 @@ def load_stage_lighting( scene, sdl_folder ):
         u = lights[0]
         set_key_light_direction( scene, mt_to_blender( u['props']['mDir'] ) )
         if 'mColor' in u['props']:
-            scene['mt_light_color'] = tuple( u['props']['mColor'][:3] )
+            set_key_light_color( scene, u['props']['mColor'][:3] )
         report.append( f"key light {u['name']} ({u['file']})" )
 
     toons = [ u for u in units if u['name'] == 'ToonLight' ]
