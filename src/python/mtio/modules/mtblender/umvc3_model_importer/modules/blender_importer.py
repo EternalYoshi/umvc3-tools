@@ -218,6 +218,14 @@ class BlenderModelImporter(ModelImporterBase):
             for face in mesh.polygons:
                 face.use_smooth = True  # loop normals have effect only if smooth shading ?
 
+            # the game's outline vertex shader pushes each vertex along its own stored normal;
+            # keep it per vertex for the outline hull (Blender's normals follow the winding,
+            # which the outline-only bridge strips don't keep consistent)
+            try:
+                gn = mesh.attributes.new( name='mt_game_normal', type='FLOAT_VECTOR', domain='POINT' )
+                gn.data.foreach_set( 'vector', [ c for n in vertexData.normalArray for c in tuple( n )[:3] ] )
+            except Exception:
+                pass
             # Set loop normals
             loop_normals = [mathutils.Vector(vertexData.normalArray[loop.vertex_index]) for loop in mesh.loops]
             mesh.loops.foreach_set("normal", [subitem for item in loop_normals for subitem in item])
@@ -672,6 +680,8 @@ class BlenderModelImporter(ModelImporterBase):
             mt_exact.ensure_game_camera( scene, getattr( mip, 'model_scale', 1.0 ) or 1.0 )
         except Exception as e:
             self.logger.warn( f'could not add the game camera: {e}' )
+        if 'mt_outline_push' not in scene.keys():
+            scene['mt_outline_push'] = 60.0
         if 'mt_outenc' not in scene.keys():
             scene['mt_outenc'] = 1
         if not scene.get( 'mt_exact_defaults' ):
@@ -1216,6 +1226,11 @@ class BlenderModelImporter(ModelImporterBase):
                 self.logger.warn( f'could not set up MT lighting: {e}' )
             self._setupExact( modFilePath, context )
         super().importModel(modFilePath, context)
+        try:
+            made = mt_exact.split_outlines( list( getattr( self, 'importedMeshObjects', [] ) ) )
+            self.importedMeshObjects = list( getattr( self, 'importedMeshObjects', [] ) ) + made
+        except Exception as e:
+            self.logger.warn( f'could not move the outlines to their own objects: {e}' )
         try:
             # every face expression is in the file, one group each; the game shows one
             n = mt_exact.apply_face_group( context.scene, getattr( self, 'importedMeshObjects', [] ) )

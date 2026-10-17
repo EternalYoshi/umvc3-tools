@@ -177,7 +177,8 @@ class SUB_PT_Model_Import_Rendering(Panel):
                 layout.label(text='Game Shaders')
                 row = layout.row(align=True)
                 row.prop(mip, 'mt_point_light')
-                for key, label in (('mt_light_mask', 'Light Mask'), ('mt_outenc', 'Shader Set (1 fight, 0 super cut-in)')):
+                for key, label in (('mt_light_mask', 'Light Mask'), ('mt_outenc', 'Shader Set (1 fight, 0 super cut-in)'),
+                                   ('mt_outline_push', 'Outline Push Back (then Rebuild)')):
                     if key in scene.keys():
                         row = layout.row(align=True)
                         row.prop(scene, '["%s"]' % key, text=label)

@@ -844,17 +844,29 @@ def _gn_socket( group, name, stype, in_out ):
     coll = group.inputs if in_out == 'INPUT' else group.outputs
     return coll.new( stype, name )
 
+OUTLINE_GROUP_VERSION = 5
+
 def outline_group():
     g = bpy.data.node_groups.get( OUTLINE_GROUP )
-    if g is not None:
+    if g is not None and g.get( 'mt_version' ) == OUTLINE_GROUP_VERSION:
         return g
+    if g is not None:
+        g.name = OUTLINE_GROUP + ' (old)'
     g = bpy.data.node_groups.new( OUTLINE_GROUP, 'GeometryNodeTree' )
+    g['mt_version'] = OUTLINE_GROUP_VERSION
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'INPUT' )
     _gn_socket( g, 'Material', 'NodeSocketMaterial', 'INPUT' )
     _gn_socket( g, 'Camera', 'NodeSocketObject', 'INPUT' )
     s = _gn_socket( g, 'Width', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.00092
     s = _gn_socket( g, 'Ortho Depth', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
     s = _gn_socket( g, 'Keep Mesh', 'NodeSocketBool', 'INPUT' ); s.default_value = True
+    # 1: weld normals across seams instead of the game's per vertex normals (not the game look)
+    s = _gn_socket( g, 'Weld Normals', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
+    # The game draws the hull with a stencil test against the character it outlines, so the
+    # line never shows over the character's own body, only around it. Blender has no
+    # stencil; pushing the hull back along the view rays (same screen position) hides it
+    # behind the body the same way. Too far and it also hides behind a floor close behind.
+    s = _gn_socket( g, 'Push Back', 'NodeSocketFloat', 'INPUT' ); s.default_value = 60.0
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'OUTPUT' )
     N, L = g.nodes, g.links
     gi = N.new( 'NodeGroupInput' ); gi.location = ( -1200, 0 )
@@ -892,11 +904,53 @@ def outline_group():
     L.new( useo.outputs[0], mixd.inputs[0] ); L.new( dep.outputs['Value'], mixd.inputs[2] ); L.new( gi.outputs['Ortho Depth'], mixd.inputs[3] )
     amt = node( 'ShaderNodeMath', 0, 100, operation='MULTIPLY' )
     L.new( mixd.outputs[0], amt.inputs[0] ); L.new( gi.outputs['Width'], amt.inputs[1] )
+    # the game normal stored at import (mt_game_normal), Blender's normal where it's missing
+    gattr = node( 'GeometryNodeInputNamedAttribute', -650, -800, data_type='FLOAT_VECTOR' )
+    gattr.inputs['Name'].default_value = 'mt_game_normal'
+    bnorm = node( 'GeometryNodeInputNormal', -650, -950 )
+    glen = node( 'ShaderNodeVectorMath', -450, -850, operation='LENGTH' )
+    L.new( [ o for o in gattr.outputs if o.type == 'VECTOR' ][0], glen.inputs[0] )
+    has = node( 'ShaderNodeMath', -300, -850, operation='GREATER_THAN' )
+    L.new( glen.outputs['Value'], has.inputs[0] ); has.inputs[1].default_value = 0.5
+    own = node( 'ShaderNodeMix', -250, -950, data_type='VECTOR' )
+    L.new( has.outputs[0], own.inputs[0] )
+    ov = [ s for s in own.inputs if s.type == 'VECTOR' and s.name in ( 'A', 'B' ) ]
+    L.new( bnorm.outputs['Normal'], ov[0] )
+    L.new( [ o for o in gattr.outputs if o.type == 'VECTOR' ][0], ov[1] )
+    pick = node( 'ShaderNodeMix', -150, -500, data_type='VECTOR' )
+    L.new( gi.outputs['Weld Normals'], pick.inputs[0] )
+    vec_in = [ s for s in pick.inputs if s.type == 'VECTOR' and s.name in ( 'A', 'B' ) ]
+    vec_out = [ s for s in pick.outputs if s.type == 'VECTOR' ][0]
+    L.new( [ o for o in own.outputs if o.type == 'VECTOR' ][0], vec_in[0] )
+    L.new( samp.outputs[0] if samp.outputs[0].enabled else samp.outputs['Value'], vec_in[1] )
+    nn = node( 'ShaderNodeVectorMath', 0, -500, operation='NORMALIZE' )
+    L.new( vec_out, nn.inputs[0] )
     off = node( 'ShaderNodeVectorMath', 200, -200, operation='SCALE' )
-    L.new( samp.outputs[0] if samp.outputs[0].enabled else samp.outputs['Value'], off.inputs[0] )
+    L.new( nn.outputs[0], off.inputs[0] )
     L.new( amt.outputs[0], off.inputs['Scale'] )
+    # pushed = cam + (p - cam) * (depth + push) / depth  (perspective), p + fwd * push (ortho)
+    pos2 = node( 'ShaderNodeVectorMath', 300, -350, operation='ADD' )
+    L.new( pos.outputs['Position'], pos2.inputs[0] ); L.new( off.outputs[0], pos2.inputs[1] )
+    rel2 = node( 'ShaderNodeVectorMath', 300, -500, operation='SUBTRACT' )
+    L.new( pos2.outputs[0], rel2.inputs[0] ); L.new( cam.outputs['Location'], rel2.inputs[1] )
+    dep2 = node( 'ShaderNodeVectorMath', 300, -650, operation='DOT_PRODUCT' )
+    L.new( rel2.outputs[0], dep2.inputs[0] ); L.new( fwd.outputs[0], dep2.inputs[1] )
+    dsafe = node( 'ShaderNodeMath', 450, -650, operation='MAXIMUM' )
+    L.new( dep2.outputs['Value'], dsafe.inputs[0] ); dsafe.inputs[1].default_value = 1e-3
+    ratio = node( 'ShaderNodeMath', 600, -650, operation='DIVIDE' )
+    L.new( gi.outputs['Push Back'], ratio.inputs[0] ); L.new( dsafe.outputs[0], ratio.inputs[1] )
+    persp = node( 'ShaderNodeVectorMath', 750, -550, operation='SCALE' )
+    L.new( rel2.outputs[0], persp.inputs[0] ); L.new( ratio.outputs[0], persp.inputs['Scale'] )
+    ortho = node( 'ShaderNodeVectorMath', 750, -750, operation='SCALE' )
+    L.new( fwd.outputs[0], ortho.inputs[0] ); L.new( gi.outputs['Push Back'], ortho.inputs['Scale'] )
+    pushv = node( 'ShaderNodeMix', 900, -650, data_type='VECTOR' )
+    L.new( useo.outputs[0], pushv.inputs[0] )
+    pv = [ x for x in pushv.inputs if x.type == 'VECTOR' and x.name in ( 'A', 'B' ) ]
+    L.new( persp.outputs[0], pv[0] ); L.new( ortho.outputs[0], pv[1] )
+    total = node( 'ShaderNodeVectorMath', 1050, -400, operation='ADD' )
+    L.new( off.outputs[0], total.inputs[0] ); L.new( [ x for x in pushv.outputs if x.type == 'VECTOR' ][0], total.inputs[1] )
     setp = node( 'GeometryNodeSetPosition', 400, -100 )
-    L.new( gi.outputs['Geometry'], setp.inputs['Geometry'] ); L.new( off.outputs[0], setp.inputs['Offset'] )
+    L.new( gi.outputs['Geometry'], setp.inputs['Geometry'] ); L.new( total.outputs[0], setp.inputs['Offset'] )
     flip = node( 'GeometryNodeFlipFaces', 550, -100 )
     L.new( setp.outputs[0], flip.inputs[0] )
     setm = node( 'GeometryNodeSetMaterial', 700, -100 )
@@ -990,12 +1044,26 @@ def add_outline( obj, ia, context, logger=None, outline_only=False ):
         return False
     mod = obj.modifiers.get( 'MT Outline' ) or obj.modifiers.new( 'MT Outline', 'NODES' )
     mod.node_group = outline_group()
+    # build the hull in the rest pose and let the armature deform it with the mesh, the way
+    # the game skins the position and normal before pushing out
+    try:
+        while obj.modifiers.find( mod.name ) > 0:
+            idx = obj.modifiers.find( mod.name )
+            obj.modifiers.move( idx, idx - 1 )
+    except Exception:
+        pass
     set_outline_inputs( obj, mod, mat, scene, outline_only )
     obj['mt_outline_ia'] = ia
     obj['mt_outline_only'] = bool( outline_only )
     return True
 
 def set_outline_inputs( obj, mod, mat, scene, outline_only ):
+    # older files carry an older hull group; swap in the current one first
+    try:
+        if mod.node_group is None or mod.node_group.get( 'mt_version' ) != OUTLINE_GROUP_VERSION:
+            mod.node_group = outline_group()
+    except Exception:
+        pass
     cam = scene.camera
     width = scene.get( scene_prop_name( 'CBOutlineFilter__packed9', 0 ), [ 0, 0, 0, 0.00092 ] )[3]
     for item in ( mod.node_group.interface.items_tree if hasattr( mod.node_group, 'interface' ) else mod.node_group.inputs ):
@@ -1011,6 +1079,7 @@ def set_outline_inputs( obj, mod, mat, scene, outline_only ):
                 # no camera yet: a typical fight camera distance; orthographic: its view size
                 mod[ident] = 400.0 if cam is None else ( float( cam.data.ortho_scale ) if cam.data.type == 'ORTHO' else 0.0 )
             elif nm == 'Keep Mesh': mod[ident] = not outline_only
+            elif nm == 'Push Back': mod[ident] = float( scene.get( 'mt_outline_push', 60.0 ) ) * float( scene.get( 'mt_unit_scale', 1.0 ) or 1.0 )
         except Exception:
             pass
     # setting socket values through id properties doesn't rebuild the depsgraph relations,
@@ -1164,3 +1233,43 @@ def ensure_game_camera( scene, unit_scale=1.0 ):
     cam.rotation_quaternion = fwd.to_track_quat( '-Z', 'Y' )
     scene.camera = cam
     return cam
+
+
+def split_outlines( objects ):
+    """A geometry nodes modifier drops the mesh's custom normals, and the toon shading lives
+    on those (Ryu's and Wesker's faces are shaded by edited normals). So the hull goes on a
+    linked duplicate that shares the mesh, runs the hull before its own armature modifier and
+    keeps only the hull; the original keeps its normals. Outline-only meshes keep theirs."""
+    made = []
+    for obj in objects:
+        mod = obj.modifiers.get( 'MT Outline' )
+        if mod is None or mod.type != 'NODES' or obj.get( 'mt_outline_only' ):
+            continue
+        dup = bpy.data.objects.new( obj.name + ' outline', obj.data )
+        for coll in obj.users_collection:
+            coll.objects.link( dup )
+        dup.parent = obj.parent
+        dup.parent_type = obj.parent_type
+        dup.matrix_parent_inverse = obj.matrix_parent_inverse.copy()
+        dup.matrix_basis = obj.matrix_basis.copy()
+        for k in ( 'mt_group', 'mt_outline_ia' ):
+            if k in obj.keys():
+                dup[k] = obj[k]
+        dup['mt_outline_only'] = True
+        dup['mt_outline_of'] = obj.name
+        dup.hide_viewport = obj.hide_viewport
+        dup.hide_render = obj.hide_render
+        # vertex group names live on the shared mesh, the armature finds them as is
+        nm = dup.modifiers.new( 'MT Outline', 'NODES' )
+        nm.node_group = mod.node_group
+        for src in obj.modifiers:
+            if src.type == 'ARMATURE':
+                am = dup.modifiers.new( src.name, 'ARMATURE' )
+                for a in ( 'object', 'use_vertex_groups', 'use_bone_envelopes', 'use_deform_preserve_volume' ):
+                    try: setattr( am, a, getattr( src, a ) )
+                    except Exception: pass
+        mat = bpy.data.materials.get( 'MT Outline@%s' % obj.get( 'mt_outline_ia', '' ) )
+        obj.modifiers.remove( mod )
+        set_outline_inputs( dup, nm, mat, bpy.context.scene, True )
+        made.append( dup )
+    return made
