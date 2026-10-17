@@ -11,8 +11,11 @@ Two node groups, built once per blend file:
                    space normal uv used by sphere maps and FUVViewNormal spec maps
   MT Character     textures + the MRL constants -> the final colour
 
-Lighting comes from the scene, the way the game gets it from the stage SDL: a directional
-key light, its colour, a flat ambient, and the ToonLight rim colour and power. They live
+Lighting comes from the scene. In Eevee every light counts (suns, points, spots, areas,
+their shadows, the world as ambient): the groups read it back with Shader to RGB and feed
+it into the game's toon maths, so one sun at the reference strength gives the game's exact
+numbers. Cycles has no Shader to RGB, so there the groups fall back to the key sun alone,
+the way the game gets it from the stage SDL. Rim colour and power come from the ToonLight. They live
 as custom properties on the scene (mt_light_dir, ...) that the groups read with View Layer
 attribute nodes. A sun lamp drives the key light (direction from its rotation, colour from
 its colour times strength), 'MT Key Light' by default or any sun picked in the panel, so
@@ -37,7 +40,7 @@ except ImportError:          # blender always ships numpy, this is only for lint
 
 COORDS_GROUP = 'MT Toon Coords'
 CHARACTER_GROUP = 'MT Character'
-GROUP_VERSION = 2
+GROUP_VERSION = 3
 KEY_LIGHT_NAME = 'MT Key Light'
 
 # Training Room (stg000) values from its Environment00.sdl, converted to blender axes.
@@ -51,6 +54,8 @@ SCENE_DEFAULTS = {
     'mt_rim_min_height': 2.0,                   # baked into the compiled shaders
     'mt_rim_max_height': 15.0,
     'mt_unit_scale':  1.0,                      # importer model scale, MT units -> blender
+    'mt_scene_lights': 1.0,                     # 1: every light in the scene (Eevee), 0: key sun only
+    'mt_world_ambient': 1.0,                    # world lighting counts as the ambient term
 }
 
 def mt_to_blender( v ):
@@ -118,13 +123,18 @@ def set_key_light_direction( scene, direction, obj=None ):
         obj.rotation_mode = 'QUATERNION'
         obj.rotation_quaternion = d.to_track_quat( 'Z', 'Y' )
 
+def _srgb_to_linear( c ):
+    return c / 12.92 if c <= 0.04045 else ( ( c + 0.055 ) / 1.055 ) ** 2.4
+
 def set_key_light_color( scene, color, obj=None ):
+    '''color is a game (gamma space) light colour like the SDL's mColor. The sun gets its
+    hue in linear and the brightest channel as strength.'''
     c = [ float( x ) for x in tuple( color )[:3] ]
+    strength = max( c ) if max( c ) > 0 else 0.0
     scene['mt_light_color'] = tuple( c )
     obj = obj or key_light( scene )
     if obj is not None:
-        strength = max( c ) if max( c ) > 0 else 0.0
-        obj.data.color = [ x / strength for x in c ] if strength > 0 else ( 1.0, 1.0, 1.0 )
+        obj.data.color = [ _srgb_to_linear( x / strength ) for x in c ] if strength > 0 else ( 1.0, 1.0, 1.0 )
         obj.data.energy = strength
 
 def _drive_from_key_light( scene ):
@@ -351,6 +361,45 @@ class _NB:
         self.attr_cache[key] = out
         return out
 
+    def srgb_encode( self, v ):
+        '''exact linear -> sRGB per channel (blender light colours are linear, the game
+        lights in gamma space)'''
+        chans = []
+        for c in self.sep( v ):
+            c = self.math( 'MAXIMUM', c, 0.0 )
+            lo = self.math( 'MULTIPLY', c, 12.92 )
+            hi = self.math( 'SUBTRACT', self.math( 'MULTIPLY', self.math( 'POWER', c, 1.0 / 2.4 ), 1.055 ), 0.055 )
+            is_hi = self.math( 'GREATER_THAN', c, 0.0031308 )
+            chans.append( self.lerp_f( is_hi, lo, hi ) )
+        return self.comb( *chans )
+
+    def max3( self, v ):
+        x, y, z = self.sep( v )
+        return self.math( 'MAXIMUM', self.math( 'MAXIMUM', x, y ), z )
+
+    def shader_to_rgb( self, shader_node ):
+        n = self.node( 'ShaderNodeShaderToRGB' )
+        self.links.new( shader_node.outputs[0], n.inputs[0] )
+        return n.outputs['Color']
+
+    def light_color( self, v ):
+        '''colour x strength (linear) -> the gamma space light the shaders expect: the
+        strength stays as is, the hue goes through the sRGB curve'''
+        m = self.math( 'MAXIMUM', self.max3( v ), 1e-6 )
+        return self.vec( 'SCALE', self.srgb_encode( self.vec( 'SCALE', v, self.math( 'DIVIDE', 1.0, m ) ) ), m )
+
+    def is_cycles( self ):
+        '''Cycles has no Shader to RGB, it drops the node and the socket it fed falls back to
+        its own default value. Feed black emission into a socket whose default is 1:
+        Eevee reads 0, Cycles reads 1.'''
+        em = self.node( 'ShaderNodeEmission', 'engine probe' )
+        em.inputs['Color'].default_value = ( 0.0, 0.0, 0.0, 1.0 )
+        n = self.node( 'ShaderNodeMath', 'is cycles', operation='MAXIMUM' )
+        n.inputs[0].default_value = 1.0
+        n.inputs[1].default_value = 0.0
+        self.links.new( self.shader_to_rgb( em ), n.inputs[0] )
+        return n.outputs[0]
+
     def srgb_decode( self, v ):
         '''exact sRGB -> linear per channel, so Standard view shows the raw value'''
         chans = []
@@ -413,11 +462,20 @@ def get_coords_group():
         ( 'Uroko',                 'NodeSocketFloat', 0.0 ),
         ( 'fUrokoFactor',          'NodeSocketFloat', 1.0 ),
     ), (
-        ( 'Toon UV',        'NodeSocketVector' ),
+        ( 'Toon UV',        'NodeSocketVector' ),     # red channel (all three with one light)
+        ( 'Toon UV G',      'NodeSocketVector' ),
+        ( 'Toon UV B',      'NodeSocketVector' ),
         ( 'Rev UV',         'NodeSocketVector' ),
+        ( 'Rev UV G',       'NodeSocketVector' ),
+        ( 'Rev UV B',       'NodeSocketVector' ),
         ( 'View UV',        'NodeSocketVector' ),
         ( 'Shading Normal', 'NodeSocketVector' ),
         ( 'NdotL',          'NodeSocketFloat' ),
+        ( 'Light Color',    'NodeSocketVector' ),
+        ( 'Lambert Light',  'NodeSocketVector' ),
+        ( 'Ambient Light',  'NodeSocketVector' ),
+        ( 'World Light',    'NodeSocketVector' ),
+        ( 'Scene Lights',   'NodeSocketFloat' ),
     ) )
     b = _NB( group )
     L = b.vec( 'NORMALIZE', b.scene_value( 'mt_light_dir', 'vector' ), label='L' )
@@ -431,11 +489,63 @@ def get_coords_group():
     Nb = b.vec( 'ADD', N, b.vec( 'SCALE', b.vec( 'SUBTRACT', Nv, N ), p ), label='uroko normal' )
     nbdl = b.vec( 'DOT_PRODUCT', Nb, L )
 
+    # --- every light in the scene (Eevee). The game has one light: colour LC and N.L. Here
+    # white diffuse probes read back what the scene's lights (any type, shadows included)
+    # do at this point, and the light strength and N.L get pulled apart again:
+    #   front  = diffuse on  N  -> sum of I * max( N.L, 0)
+    #   back   = diffuse on -N  -> sum of I * max(-N.L, 0)
+    #   side 1 = diffuse on +T1 and -T1 -> sum of I * |T1.L|, same for T2
+    # For one light, strength I = length(front + back, side1, side2) and N.L =
+    # (front - back) / I, exact. Several lights blend into one weighted direction, per
+    # colour channel, so coloured lights tint the toon bands. A sun gives the game's numbers.
+    use = b.math( 'MULTIPLY', b.scene_value( 'mt_scene_lights', 'float' ),
+                  b.math( 'SUBTRACT', 1.0, b.is_cycles() ), label='use scene lights' )
+
+    def probe( *normals ):
+        # one Shader to RGB per diffuse: Eevee picks closures at random when a Shader to
+        # RGB holds several, which turns an Add Shader into noise
+        total = None
+        for n in normals:
+            d = b.node( 'ShaderNodeBsdfDiffuse', 'light probe' )
+            d.inputs['Color'].default_value = ( 1.0, 1.0, 1.0, 1.0 )
+            b.feed( d.inputs['Normal'], n )
+            c = b.shader_to_rgb( d )
+            total = c if total is None else b.vec( 'ADD', total, c )
+        return total
+
+    # tangent frame around the shading normal
+    zx = b.math( 'GREATER_THAN', b.math( 'ABSOLUTE', b.sep( Nb )[2] ), 0.9 )
+    helper = b.lerp_v( zx, ( 0.0, 0.0, 1.0 ), ( 1.0, 0.0, 0.0 ) )
+    T1 = b.vec( 'NORMALIZE', b.vec( 'CROSS_PRODUCT', Nb, helper ) )
+    T2 = b.vec( 'CROSS_PRODUCT', Nb, T1 )
+    neg = lambda v: b.vec( 'SCALE', v, -1.0 )
+    Pf = probe( Nb )
+    Pb = probe( neg( Nb ) )
+    P1 = probe( T1, neg( T1 ) )
+    P2 = probe( T2, neg( T2 ) )
+    # light reaching both sides evenly is the world: it becomes ambient and is taken out
+    W = b.vec( 'MINIMUM', Pf, Pb, label='world light' )
+    W2 = b.vec( 'SCALE', W, 2.0 )
+    pos = lambda v: b.vec( 'SCALE', b.vec( 'MAXIMUM', v, ( 0.0, 0.0, 0.0 ) ), math.pi )
+    Ef = pos( b.vec( 'SUBTRACT', Pf, W ) )
+    Eb = pos( b.vec( 'SUBTRACT', Pb, W ) )
+    E1 = pos( b.vec( 'SUBTRACT', P1, W2 ) )
+    E2 = pos( b.vec( 'SUBTRACT', P2, W2 ) )
+    En = b.vec( 'ADD', Ef, Eb )
+    sq = b.vec( 'ADD', b.vec( 'ADD', b.vec( 'MULTIPLY', En, En ), b.vec( 'MULTIPLY', E1, E1 ) ), b.vec( 'MULTIPLY', E2, E2 ) )
+    I_lin = b.comb( *[ b.math( 'SQRT', c ) for c in b.sep( sq ) ] )
+    X = b.vec( 'DIVIDE', b.vec( 'SUBTRACT', Ef, Eb ), b.vec( 'MAXIMUM', I_lin, ( 1e-6, 1e-6, 1e-6 ) ), label='scene N.L (rgb)' )
+    Xr, Xg, Xb = b.sep( X )
+    LC_scene = b.light_color( I_lin )
+    LC_key = b.light_color( b.scene_value( 'mt_light_color', 'vector' ) )
+    lam_key = b.vec( 'SCALE', LC_key, b.math( 'MAXIMUM', ndl, 0.0 ) )
+    lam_scene = b.vec( 'MULTIPLY', LC_scene, b.vec( 'MAXIMUM', X, ( 0.0, 0.0, 0.0 ) ) )
+
     def ramp_u( s, d ):
         # u = max(0, s * N.L + saturate(1 - s))
         return b.math( 'MAXIMUM', b.math( 'MULTIPLY_ADD', s, d, b.math( 'SUBTRACT', 1.0, s, clamp=True ) ), 0.0 )
-    O_toon = b.comb( ramp_u( I['fHalfLambertRevise'], nbdl ), 0.5, 0.0 )
-    O_rev = b.comb( ramp_u( I['fHalfLambertReviseRev'], ndl ), 0.5, 0.0 )
+    toon_uv = [ b.comb( ramp_u( I['fHalfLambertRevise'], b.lerp_f( use, nbdl, xc ) ), 0.5, 0.0 ) for xc in ( Xr, Xg, Xb ) ]
+    rev_uv = [ b.comb( ramp_u( I['fHalfLambertReviseRev'], b.lerp_f( use, ndl, xc ) ), 0.5, 0.0 ) for xc in ( Xr, Xg, Xb ) ]
 
     # sphere map / FUVViewNormal: view space vertex normal, (x, y) * 0.5 + 0.5
     vt = b.node( 'ShaderNodeVectorTransform', 'view normal' )
@@ -445,11 +555,18 @@ def get_coords_group():
     vx, vy, _ = b.sep( vn )
     O_view = b.comb( b.math( 'MULTIPLY_ADD', vx, 0.5, 0.5 ), b.math( 'MULTIPLY_ADD', vy, 0.5, 0.5 ), 0.0 )
 
-    b.links.new( O_toon, O['Toon UV'] )
-    b.links.new( O_rev, O['Rev UV'] )
+    amb = b.vec( 'SCALE', b.srgb_encode( W ), b.math( 'MULTIPLY', use, b.scene_value( 'mt_world_ambient', 'float' ) ) )
+
+    for name, sock in zip( ( 'Toon UV', 'Toon UV G', 'Toon UV B', 'Rev UV', 'Rev UV G', 'Rev UV B' ), toon_uv + rev_uv ):
+        b.links.new( sock, O[name] )
     b.links.new( O_view, O['View UV'] )
     b.links.new( Nb, O['Shading Normal'] )
-    b.links.new( ndl, O['NdotL'] )
+    b.links.new( b.lerp_f( use, ndl, b.max3( X ) ), O['NdotL'] )
+    b.links.new( b.lerp_v( use, LC_key, LC_scene ), O['Light Color'] )
+    b.links.new( b.lerp_v( use, lam_key, lam_scene ), O['Lambert Light'] )
+    b.links.new( amb, O['Ambient Light'] )
+    b.links.new( W, O['World Light'] )
+    b.links.new( use, O['Scene Lights'] )
     return group
 
 
@@ -468,6 +585,12 @@ CHARACTER_INPUTS = (
     ( 'Toon Ramp',         'NodeSocketColor',  ( 1.0, 1.0, 1.0, 1.0 ) ),
     ( 'Toon Rev Ramp',     'NodeSocketColor',  ( 1.0, 1.0, 1.0, 1.0 ) ),
     ( 'Reflection',        'NodeSocketColor',  ( 0.0, 0.0, 0.0, 1.0 ) ),
+    # lighting, from MT Toon Coords
+    ( 'Lambert Light',     'NodeSocketVector', ( 1.15, 1.15, 1.15 ) ),
+    ( 'Light Color',       'NodeSocketVector', ( 1.15, 1.15, 1.15 ) ),
+    ( 'Ambient Light',     'NodeSocketVector', ( 0.0, 0.0, 0.0 ) ),
+    ( 'World Light',       'NodeSocketVector', ( 0.0, 0.0, 0.0 ) ),
+    ( 'Scene Lights',      'NodeSocketFloat',  0.0 ),
     # mrl constants, named as in the shader
     ( 'fAlbedoColor',      'NodeSocketColor',  ( 1.0, 1.0, 1.0, 1.0 ) ),
     ( 'fDiffuseColor',     'NodeSocketColor',  ( 1.0, 1.0, 1.0, 1.0 ) ),
@@ -498,18 +621,17 @@ def get_character_group():
     ) )
     b = _NB( group )
     L = b.vec( 'NORMALIZE', b.scene_value( 'mt_light_dir', 'vector' ), label='L' )
-    LC = b.scene_value( 'mt_light_color', 'vector' )
-    AMB = b.scene_value( 'mt_ambient', 'vector' )
+    LC = I['Light Color']
+    AMB = b.vec( 'ADD', b.scene_value( 'mt_ambient', 'vector' ), I['Ambient Light'] )
     geo = b.node( 'ShaderNodeNewGeometry' )
     V = geo.outputs['Incoming']
     N = b.vec( 'NORMALIZE', I['Normal'] )
     Ns = b.vec( 'NORMALIZE', I['Shading Normal'] )
-    ndl = b.vec( 'DOT_PRODUCT', N, L, label='N.L' )
     ndv = b.vec( 'DOT_PRODUCT', N, V, label='N.V' )
 
     # diffuse light: (light * ramp + ambient), or plain lambert for non toon FBRDF
     d_toon = b.vec( 'ADD', b.vec( 'MULTIPLY', LC, I['Toon Ramp'] ), AMB )
-    d_lam = b.vec( 'ADD', b.vec( 'SCALE', LC, b.math( 'MAXIMUM', ndl, 0.0 ) ), AMB )
+    d_lam = b.vec( 'ADD', I['Lambert Light'], AMB )
     D = b.lerp_v( I['Toon'], d_lam, d_toon )
     Dlit = b.vec( 'SCALE', b.vec( 'MULTIPLY', D, I['fDiffuseColor'] ), I['Occlusion'], )
 
@@ -540,7 +662,18 @@ def get_character_group():
     ndh = b.vec( 'DOT_PRODUCT', Ns, H )
     on = b.math( 'GREATER_THAN', ndh, 1e-5 )
     pw = b.math( 'MULTIPLY', b.math( 'POWER', b.math( 'MAXIMUM', ndh, 1e-5 ), I['fShininess'] ), on )
-    spec = b.vec( 'SCALE', b.vec( 'MULTIPLY', LC, I['fSpecularColor'] ), pw )
+    spec_key = b.vec( 'SCALE', LC, pw )
+    # every scene light: a glossy lobe matched to the Blinn exponent. Roughness from
+    # alpha = sqrt(2 / (n + 2)), scaled so a sun gives the same peak as pow(N.H, n) * light.
+    # The world's own reflection is roughly the world light, take it out like the diffuse.
+    alpha = b.math( 'SQRT', b.math( 'DIVIDE', 2.0, b.math( 'ADD', I['fShininess'], 2.0 ) ) )
+    gl = b.node( 'ShaderNodeBsdfGlossy', 'scene specular' )
+    gl.inputs['Color'].default_value = ( 1.0, 1.0, 1.0, 1.0 )
+    b.feed( gl.inputs['Roughness'], b.math( 'SQRT', alpha ) )
+    b.feed( gl.inputs['Normal'], Ns )
+    g_raw = b.vec( 'MAXIMUM', b.vec( 'SUBTRACT', b.shader_to_rgb( gl ), I['World Light'] ), ( 0.0, 0.0, 0.0 ) )
+    spec_scene = b.vec( 'SCALE', g_raw, b.math( 'MULTIPLY', b.math( 'MULTIPLY', alpha, alpha ), 4.0 * math.pi * 0.9 ) )
+    spec = b.vec( 'MULTIPLY', b.lerp_v( I['Scene Lights'], spec_key, spec_scene ), I['fSpecularColor'] )
     spec = b.vec( 'SCALE', spec, b.math( 'GREATER_THAN', I['Specular'], 0.5 ) )
     refl = b.vec( 'MULTIPLY', I['Reflection'], I['fReflectiveColor'] )
     sr = b.vec( 'ADD', spec, refl )

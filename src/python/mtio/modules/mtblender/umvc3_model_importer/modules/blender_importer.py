@@ -565,6 +565,22 @@ class BlenderModelImporter(ModelImporterBase):
         except Exception as e:
             self.logger.debug( f'uv for {slot}: {e}' )
 
+    def _mtRamp( self, nodes, links, image, label, coords, uv, x, y ):
+        '''Samples a toon ramp once per colour channel, each at its own u (they only differ
+        when coloured scene lights hit the surface) and puts r, g and b back together.'''
+        comb = nodes.new( 'ShaderNodeCombineColor' )
+        comb.location = ( x + 300, y )
+        for i, suffix in enumerate( ( '', ' G', ' B' ) ):
+            tex = self._mtTexNode( nodes, image, label, x, y - i * 90, extend=True )
+            tex.hide = True
+            links.new( coords.outputs[uv + suffix], tex.inputs['Vector'] )
+            sep = nodes.new( 'ShaderNodeSeparateColor' )
+            sep.location = ( x + 150, y - i * 90 )
+            sep.hide = True
+            links.new( tex.outputs['Color'], sep.inputs['Color'] )
+            links.new( sep.outputs[i], comb.inputs[i] )
+        return comb.outputs['Color']
+
     def _buildMTMaterial( self, bpy_material, material, context, images ):
         '''Replaces the material's graph with the MT shading graph.'''
         nodes = bpy_material.node_tree.nodes
@@ -634,6 +650,8 @@ class BlenderModelImporter(ModelImporterBase):
         links.new( normal_sock, coords.inputs['Normal'] )
         links.new( normal_sock, G['Normal'] )
         links.new( coords.outputs['Shading Normal'], G['Shading Normal'] )
+        for name in ( 'Lambert Light', 'Light Color', 'Ambient Light', 'World Light', 'Scene Lights' ):
+            links.new( coords.outputs[name], G[name] )
 
         # --- albedo
         if images.get( 'tAlbedoMap' ) is not None:
@@ -665,13 +683,10 @@ class BlenderModelImporter(ModelImporterBase):
                         img = mt_shading.bake_toon_high_ramp( img, tf )
                     except Exception as e:
                         self.logger.warn( f'could not bake the FToonShaderHigh ramp: {e}' )
-            tex = self._mtTexNode( nodes, img, 'tToonMap', -250, -350, extend=True )
-            links.new( coords.outputs['Toon UV'], tex.inputs['Vector'] )
-            links.new( tex.outputs['Color'], G['Toon Ramp'] )
+            links.new( self._mtRamp( nodes, links, img, 'tToonMap', coords, 'Toon UV', -250, -350 ), G['Toon Ramp'] )
         if images.get( 'tToonRevMap' ) is not None:
-            tex = self._mtTexNode( nodes, images['tToonRevMap'], 'tToonRevMap', -250, -600, extend=True )
-            links.new( coords.outputs['Rev UV'], tex.inputs['Vector'] )
-            links.new( tex.outputs['Color'], G['Toon Rev Ramp'] )
+            links.new( self._mtRamp( nodes, links, images['tToonRevMap'], 'tToonRevMap', coords, 'Rev UV', -250, -900 ),
+                       G['Toon Rev Ramp'] )
         else:
             setv( 'Rim', 0.0 )
 
@@ -708,8 +723,10 @@ class BlenderModelImporter(ModelImporterBase):
         setv( 'Rim', 1.0 if ( variant['rim'] and images.get( 'tToonRevMap' ) is not None ) else 0.0 )
         setv( 'Fresnel', float( variant['fresnel'] ) )
 
+        # cast shadows so scene lights shadow the character (turn shadows off on a light
+        # for the game's look, the game has no self shadowing)
         try:
-            bpy_material.shadow_method = 'NONE'
+            bpy_material.shadow_method = 'HASHED' if material.isAlphaBlended() or variant['alpha_test'] else 'OPAQUE'
         except Exception:
             pass
         bpy_material['mt_variant'] = ', '.join( k for k, v in variant.items() if v is True )

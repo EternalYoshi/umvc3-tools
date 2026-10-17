@@ -158,11 +158,14 @@ class SUB_PT_Model_Import_Rendering(Panel):
                 row = layout.row(align=True)
                 row.prop(sun.data, 'color', text='Colour')
                 row.prop(sun.data, 'energy', text='Strength')
-            for key, label in (('mt_ambient', 'Ambient'),
+            for key, label in (('mt_scene_lights', 'Use All Scene Lights (Eevee)'),
+                               ('mt_world_ambient', 'World As Ambient'),
+                               ('mt_ambient', 'Extra Ambient'),
                                ('mt_rim_color', 'Rim Colour'), ('mt_rim_power', 'Rim Power')):
-                row = layout.row(align=True)
-                row.prop(scene, '["%s"]' % key, text=label)
-            layout.label(text='Rotate the key light sun to move the light')
+                if key in scene.keys():
+                    row = layout.row(align=True)
+                    row.prop(scene, '["%s"]' % key, text=label)
+            layout.label(text='Eevee: any light works. Cycles: key light only')
 
 
 class SUB_OP_LoadStageLighting(bpy.types.Operator):
