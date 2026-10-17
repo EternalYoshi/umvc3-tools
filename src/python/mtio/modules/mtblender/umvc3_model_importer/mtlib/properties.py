@@ -95,6 +95,23 @@ class UMVC3ModelImportProperties(PropertyGroup):
         min=0.0,
         max=20.0,
     )
+    import_exact_shading: BoolProperty(
+        name='Game Shaders (exact)',
+        description='With MT Shading on, compile the pixel shader the game itself runs for each material (from root.spkg) into nodes, instead of the hand built approximation. Needs the game folder',
+        default=True,
+    )
+    game_native_dir: StringProperty(
+        name='Game Folder',
+        description='UMvC3 install folder (or its nativePCx64 folder). Found automatically when the model sits inside it or Steam is in the usual place',
+        default='',
+        subtype='DIR_PATH',
+    )
+    mt_point_light: PointerProperty(
+        name='Point Light',
+        description='Point light the game shaders use as their second light (FPointLightD). Strength is the game value, falloff from the light\'s mt_falloff_start / mt_falloff_end props. Rebuild the game shaders after setting it',
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'LIGHT' and obj.data.type == 'POINT',
+    )
     mt_key_light: PointerProperty(
         name='Key Light',
         description='Sun lamp the MT materials take their light direction and colour from (colour times strength)',

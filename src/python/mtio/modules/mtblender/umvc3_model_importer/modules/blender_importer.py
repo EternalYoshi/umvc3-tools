@@ -4,6 +4,7 @@ from ..mtlib.base_importer import *
 from . import blender_plugin
 from .blender_plugin import *
 from . import mt_shading
+from . import mt_exact
 import os
 import bpy
 import mathutils
@@ -141,7 +142,13 @@ class BlenderModelImporter(ModelImporterBase):
         if not hasattr( self, 'importedMeshObjects' ):
             self.importedMeshObjects = []
         self.importedMeshObjects.append( obj )
-        obj.data.materials.append(self.editorMaterialArray[primitive.indices.getMaterialIndex()].unwrap())
+        obj.data.materials.append( self._materialForPrimitive( primitive.indices.getMaterialIndex(), shaderInfo.name, context ) )
+        if self._wantsExact( context ):
+            # the game's outline pass; the IASkinBridge meshes exist only for it
+            try:
+                mt_exact.add_outline( obj, shaderInfo.name, context, self.logger, outline_only=shaderInfo.name.startswith( 'IASkinBridge' ) )
+            except Exception as e:
+                self.logger.warn( f'could not add the game outline to {mesh_name}: {e}' )
         self.setPrimitiveCustomAttributes( primitive, shaderInfo, BlenderNodeProxy(obj), envelopeIndex )
         if self.layer != None:
             # add to layer
@@ -530,6 +537,10 @@ class BlenderModelImporter(ModelImporterBase):
         try:
             png = os.path.splitext( ddsPath )[0] + '_rgb.png'
             decoded = mt_shading.decode_yuv_image( image, png )
+            try:
+                decoded['mt_raw_image'] = image.name
+            except Exception:
+                pass
             self.logger.info( f'decoded YUV (format 42) texture {os.path.basename( ddsPath )}' )
             return decoded
         except Exception as e:
@@ -580,6 +591,80 @@ class BlenderModelImporter(ModelImporterBase):
             links.new( tex.outputs['Color'], sep.inputs['Color'] )
             links.new( sep.outputs[i], comb.inputs[i] )
         return comb.outputs['Color']
+
+    # ------------------------------------------------------------------------------------
+    # exact mode: the game's own pixel shaders compiled to nodes (see mt_exact)
+    # ------------------------------------------------------------------------------------
+    DEFAULT_GAME_DIRS = (
+        r'C:\Program Files (x86)\Steam\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
+        r'C:\Steam\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
+        r'D:\SteamLibrary\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
+    )
+
+    def _wantsExact( self, context ):
+        try:
+            mip = context.scene.sub_scene_properties
+            return bool( mip.import_toon_shading and mip.import_exact_shading and context.scene.get( 'mt_game_native_dir' ) )
+        except Exception:
+            return False
+
+    def _setupExact( self, modFilePath, context ):
+        mip = context.scene.sub_scene_properties
+        if not getattr( mip, 'import_exact_shading', False ):
+            return
+        from ..mtlib import mtshaders
+        hint = bpy.path.abspath( getattr( mip, 'game_native_dir', '' ) or '' )
+        native = mtshaders.ShaderDB.find_native( hint, modFilePath, *self.DEFAULT_GAME_DIRS )
+        if native is None:
+            self.logger.warn( 'game shaders not found (set the game folder in the import panel), using the approximate MT shading' )
+            context.scene['mt_game_native_dir'] = ''
+            return
+        context.scene['mt_game_native_dir'] = native
+        self.logger.info( f'using the game shaders from {native}' )
+
+    def _rememberForExact( self, bpy_material, material, context ):
+        if not self._wantsExact( context ):
+            return
+        images = {}
+        for cmd in material.cmds:
+            if cmd.type != 'texture' or not cmd.data:
+                continue
+            try:
+                img = self.loadTextureSlot( material, cmd.name, context )
+            except Exception:
+                img = None
+            if img is not None and img.get( 'mt_raw_image' ) and img['mt_raw_image'] in bpy.data.images:
+                raw = bpy.data.images[img['mt_raw_image']]
+                raw['mt_tex_format'] = img.get( 'mt_tex_format', 42 )
+                img = raw
+            if img is not None:
+                images[cmd.name] = img
+        self._exactInfo[bpy_material.name] = ( material, images )
+
+    def _materialForPrimitive( self, matIndex, ia, context ):
+        base = self.editorMaterialArray[matIndex].unwrap()
+        if not self._wantsExact( context ) or base.name not in self._exactInfo:
+            return base
+        key = ( matIndex, ia )
+        if key in self._exactMaterials:
+            return self._exactMaterials[key]
+        material, images = self._exactInfo[base.name]
+        # one blender material per vertex layout, the game picks a different program for each
+        used = [ k for k in self._exactMaterials if k[0] == matIndex ]
+        mat = base if not used else base.copy()
+        if used:
+            mat.name = f'{base.name}@{ia}'
+        try:
+            prog = mt_exact.build_exact_material( mat, material, ia, images, context, self.logger )
+        except Exception as e:
+            prog = None
+            self.logger.warn( f'could not compile the game shader for {mat.name}: {e}' )
+            self.logger.exception( e )
+        if prog is None and used:
+            bpy.data.materials.remove( mat )
+            mat = base
+        self._exactMaterials[key] = mat
+        return mat
 
     def _buildMTMaterial( self, bpy_material, material, context, images ):
         '''Replaces the material's graph with the MT shading graph.'''
@@ -908,6 +993,7 @@ class BlenderModelImporter(ModelImporterBase):
                     }
                     self._buildMTMaterial( bpy_material, material, context, images )
                     mt_shaded = True
+                    self._rememberForExact( bpy_material, material, context )
                 except Exception as e:
                     self.logger.warn( f'could not build MT shading for {materialName}: {e}' )
                     self.logger.exception( e )
@@ -1057,6 +1143,8 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.debug( f'could not add an outline to {getattr(obj,"name","?")}: {e}' )
 
     def importModel(self, modFilePath, context):
+        self._exactInfo = {}
+        self._exactMaterials = {}
         if self._wantsToonShading( context ):
             try:
                 mip = context.scene.sub_scene_properties
@@ -1064,7 +1152,13 @@ class BlenderModelImporter(ModelImporterBase):
                 mt_shading.set_view_transform_standard( context.scene )
             except Exception as e:
                 self.logger.warn( f'could not set up MT lighting: {e}' )
+            self._setupExact( modFilePath, context )
         super().importModel(modFilePath, context)
+        if self._wantsExact( context ):
+            try:
+                mt_exact.link_scene_drivers( context.scene )
+            except Exception as e:
+                self.logger.warn( f'could not link the game shader constants to the scene: {e}' )
 
         try:
             mip = context.scene.sub_scene_properties

@@ -137,6 +137,12 @@ class SUB_PT_Model_Import_Rendering(Panel):
 
         row = layout.row(align=True)
         row.prop(mip, 'import_toon_shading', text='MT Shading (game accurate)')
+        row = layout.row(align=True)
+        row.enabled = mip.import_toon_shading
+        row.prop(mip, 'import_exact_shading')
+        row = layout.row(align=True)
+        row.enabled = mip.import_toon_shading and mip.import_exact_shading
+        row.prop(mip, 'game_native_dir')
 
         row = layout.row(align=True)
         row.prop(mip, 'import_outline', text='Add Ink Outline')
@@ -166,6 +172,32 @@ class SUB_PT_Model_Import_Rendering(Panel):
                     row = layout.row(align=True)
                     row.prop(scene, '["%s"]' % key, text=label)
             layout.label(text='Eevee: any light works. Cycles: key light only')
+            if scene.get('mt_game_native_dir'):
+                layout.separator()
+                layout.label(text='Game Shaders')
+                row = layout.row(align=True)
+                row.prop(mip, 'mt_point_light')
+                for key, label in (('mt_light_mask', 'Light Mask'),):
+                    if key in scene.keys():
+                        row = layout.row(align=True)
+                        row.prop(scene, '["%s"]' % key, text=label)
+                row = layout.row(align=True)
+                row.operator(SUB_OP_RebuildGameShaders.bl_idname, icon='FILE_REFRESH', text='Rebuild Game Shaders')
+
+
+class SUB_OP_RebuildGameShaders(bpy.types.Operator):
+    """Recompile every game shader material for the scene as it is now (picks the game's point light variant when an MT point light is set)"""
+
+    bl_idname = "sub.mt_rebuild_game_shaders"
+    bl_label = "Rebuild Game Shaders"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        from . import mt_exact
+        from .blender_plugin import plugin
+        n = mt_exact.rebuild_all(context, plugin.logger)
+        self.report({'INFO'}, f'rebuilt {n} materials')
+        return {'FINISHED'}
 
 
 class SUB_OP_LoadStageLighting(bpy.types.Operator):

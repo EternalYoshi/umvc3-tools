@@ -40,7 +40,7 @@ except ImportError:          # blender always ships numpy, this is only for lint
 
 COORDS_GROUP = 'MT Toon Coords'
 CHARACTER_GROUP = 'MT Character'
-GROUP_VERSION = 3
+GROUP_VERSION = 4
 KEY_LIGHT_NAME = 'MT Key Light'
 
 # Training Room (stg000) values from its Environment00.sdl, converted to blender axes.
@@ -134,7 +134,8 @@ def set_key_light_color( scene, color, obj=None ):
     scene['mt_light_color'] = tuple( c )
     obj = obj or key_light( scene )
     if obj is not None:
-        obj.data.color = [ _srgb_to_linear( x / strength ) for x in c ] if strength > 0 else ( 1.0, 1.0, 1.0 )
+        # colour x strength is the game's light value as is (the shaders light in gamma space)
+        obj.data.color = [ x / strength for x in c ] if strength > 0 else ( 1.0, 1.0, 1.0 )
         obj.data.energy = strength
 
 def _drive_from_key_light( scene ):
@@ -537,7 +538,7 @@ def get_coords_group():
     X = b.vec( 'DIVIDE', b.vec( 'SUBTRACT', Ef, Eb ), b.vec( 'MAXIMUM', I_lin, ( 1e-6, 1e-6, 1e-6 ) ), label='scene N.L (rgb)' )
     Xr, Xg, Xb = b.sep( X )
     LC_scene = b.light_color( I_lin )
-    LC_key = b.light_color( b.scene_value( 'mt_light_color', 'vector' ) )
+    LC_key = b.scene_value( 'mt_light_color', 'vector' )   # the key sun holds the game's value as is
     lam_key = b.vec( 'SCALE', LC_key, b.math( 'MAXIMUM', ndl, 0.0 ) )
     lam_scene = b.vec( 'MULTIPLY', LC_scene, b.vec( 'MAXIMUM', X, ( 0.0, 0.0, 0.0 ) ) )
 

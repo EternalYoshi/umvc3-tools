@@ -9,6 +9,7 @@ classes = [
     modules.model_import.SUB_PT_MOD_OT_import,
     modules.model_import.SUB_OP_MOD_ImportModelPath,
     modules.model_import.SUB_OP_LoadStageLighting,
+    modules.model_import.SUB_OP_RebuildGameShaders,
     modules.model_import.SUB_PT_MOD_OT_Choose_Metadata_YML,
     modules.anim_import.SUB_PT_Anim_Import,
     modules.anim_import.SUB_OP_anim_import,
