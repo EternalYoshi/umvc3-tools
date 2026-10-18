@@ -26,6 +26,9 @@ class BlenderModelExporter(ModelExporterBase):
         temp = list(bpy.data.objects)
         objects = []
         for o in temp:
+            # the game outline hulls are linked duplicates of real meshes, not mod data
+            if o.get( 'mt_outline_of' ):
+                continue
             if not o in self.processedNodes:
                 objects.append( BlenderNodeProxy( o ) )
         return objects
@@ -283,11 +286,24 @@ class BlenderModelExporter(ModelExporterBase):
     def _evaluateMesh( self, obj ):
         # Snapshot with modifiers applied, minus the armature. Leaving the armature on
         # bakes the current pose into the vertices and the mod comes out permanently posed.
+        # The game outline (geometry nodes) is a render effect, not geometry to write.
         suppressed = []
         for mod in obj.modifiers:
-            if mod.type == 'ARMATURE' and mod.show_viewport:
+            if ( mod.type == 'ARMATURE' or mod.name == 'MT Outline' ) and mod.show_viewport:
                 mod.show_viewport = False
                 suppressed.append( mod )
+        # Hidden objects aren't evaluated, so to_mesh() could hand back an empty mesh. The
+        # import hides every face expression but one (and the outline only primitives) with
+        # the eye toggle, and those still belong in the .mod.
+        unhid = obj.hide_viewport
+        if unhid:
+            obj.hide_viewport = False
+        try:
+            eye = obj.hide_get()
+            if eye:
+                obj.hide_set( False )
+        except RuntimeError:
+            eye = False
 
         depsgraph = bpy.context.evaluated_depsgraph_get()
         evalObj = obj.evaluated_get( depsgraph )
@@ -300,6 +316,10 @@ class BlenderModelExporter(ModelExporterBase):
                 pass
             for m in suppressed:
                 m.show_viewport = True
+            if unhid:
+                obj.hide_viewport = True
+            if eye:
+                obj.hide_set( True )
 
         return mesh, cleanup
 

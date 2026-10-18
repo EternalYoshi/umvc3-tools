@@ -1552,8 +1552,19 @@ def apply_face_group( scene, objects=None ):
         # outline-only geometry: the game never draws it in the colour pass
         if o.get( 'mt_bridge' ) and not o.modifiers.get( 'MT Outline' ):
             hide = True
-        o.hide_viewport = hide
+        # the eye toggle, not the monitor one: the exporter leaves hide_viewport objects
+        # out of the .mod, and every face expression belongs in it
+        if o.get( 'mt_face_hidden' ) and o.hide_viewport:
+            o.hide_viewport = False
+        try:
+            o.hide_set( hide )
+        except RuntimeError:
+            pass        # not in the active view layer
         o.hide_render = hide
+        if hide:
+            o['mt_face_hidden'] = True
+        elif 'mt_face_hidden' in o.keys():
+            del o['mt_face_hidden']
         hidden += hide
     return hidden
 
@@ -1666,6 +1677,10 @@ def split_outlines( objects ):
         dup['mt_outline_only'] = True
         dup['mt_outline_of'] = obj.name
         dup.hide_viewport = obj.hide_viewport
+        try:
+            dup.hide_set( obj.hide_get() )
+        except RuntimeError:
+            pass
         dup.hide_render = obj.hide_render
         # vertex group names live on the shared mesh, the armature finds them as is
         nm = dup.modifiers.new( 'MT Outline', 'NODES' )
