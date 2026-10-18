@@ -387,11 +387,16 @@ class BlenderModelExporter(ModelExporterBase):
             triangles = mesh.loop_triangles
             if len( triangles ) == 0:
                 self.logger.warn( f'mesh {obj.name} has no faces, skipping' )
+                self.logger.warn( f'mesh {obj.name} has no faces, skipping' )
                 return
 
             loopNormals = self._getLoopNormals( mesh )
             uvLayers = self._getUvLayers( mesh )
             colorLayer = self._getColorLayer( mesh )
+            # written by the importer as 1 - occlusion, see BlenderModelImporter.OCCLUSION_ATTRIBUTE
+            occlusionLayer = mesh.attributes.get( 'mt_ao_darken' ) if hasattr( mesh, 'attributes' ) else None
+            if occlusionLayer is not None and ( occlusionLayer.domain != 'POINT' or occlusionLayer.data_type != 'FLOAT' ):
+                occlusionLayer = None
 
             worldMtx = self._getSceneMtx( obj )
             normalMtx = worldMtx.to_3x3().inverted_safe().transposed()
@@ -465,6 +470,15 @@ class BlenderModelExporter(ModelExporterBase):
                             tempMesh.colors.append( ( c[0], c[1], c[2], c[3] ) )
                         except Exception:
                             tempMesh.colors.append( ( 127.0/255.0, 127.0/255.0, 127.0/255.0, 1.0 ) )
+
+                    # always append, so a primitive built from several objects stays aligned
+                    occ = 1.0
+                    if occlusionLayer is not None:
+                        try:
+                            occ = 1.0 - float( occlusionLayer.data[vertIdx].value )
+                        except Exception:
+                            occ = 1.0
+                    tempMesh.occlusions.append( min( 1.0, max( -1.0, occ ) ) )
 
                     if hasSkin:
                         tempMesh.weights.append( self._buildVertexWeight( vertex, boneIndexByGroup ) )

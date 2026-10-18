@@ -665,18 +665,15 @@ class ModelExporterBase(ABC):
         #Tweaked to only care about meshes in the same collection as the selected Armature.
         ChosenArmature = bpy.context.view_layer.objects.active
         armatureCollections = set(ChosenArmature.users_collection)
-
         for editorNode in self.getObjects():
             if not self.shouldExportNode( editorNode ):
                 continue
             
             if not editorNode.isMeshNode() and not editorNode.isSplineNode():
                 continue
-            
             MeshNode = editorNode.node
             if not armatureCollections.intersection(MeshNode.users_collection):
                 continue
-
             yield editorNode
 
     def generatePrimitives( self, editorNode: EditorNodeProxy, attribs: PrimitiveCustomAttributeData, 
