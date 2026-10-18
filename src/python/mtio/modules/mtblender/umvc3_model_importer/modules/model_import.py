@@ -224,7 +224,7 @@ class SUB_OP_ApplyFaceGroup(bpy.types.Operator):
 
 
 class SUB_OP_ExportGameMRL(bpy.types.Operator, ExportHelper):
-    """Write an .mrl from the game shader materials: the imported .mrl with the values and textures edited on each material (MT Shader / MT UV inputs, the texture slot image nodes)"""
+    """Write an .mrl (and .mrl.yml) from the game materials: the imported .mrl with each material's MRL entry as edited in the MT Material panel and on the MT Shader / MT UV nodes"""
 
     bl_idname = "sub.mt_export_mrl"
     bl_label = "Export MRL"

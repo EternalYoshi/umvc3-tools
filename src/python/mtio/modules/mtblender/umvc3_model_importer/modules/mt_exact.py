@@ -636,7 +636,7 @@ def _srgb_decode( b, sock ):
 # material shows the MRL's textures as image nodes and its constants as named sockets
 # ----------------------------------------------------------------------------------------
 
-SHADER_GROUP_VERSION = 1
+SHADER_GROUP_VERSION = 2
 MATERIAL_CBUFFERS_EDITABLE = ( '$Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
 
 def _iface_sockets( tree, in_out ):
@@ -798,9 +798,13 @@ def _internal_images( b, probe, images, fetches ):
 
 def _group_key( prog, scene, material, images, fetches, receive, internal ):
     internal = [ ( k, v.name ) for k, v in internal ]
+    # which cbuffers the MRL has decides socket or renderer default; values of the ones that
+    # aren't shown as sockets are baked into the group
+    cbs = sorted( ( c.name, len( c.data or [] ), None if c.name in MATERIAL_CBUFFERS_EDITABLE else [ float( x ) for x in c.data ] )
+                  for c in material.cmds if c.type == 'cbuffer' )
     return json.dumps( [ SHADER_GROUP_VERSION, prog.record, int( scene.get( 'mt_outenc', 1 ) ),
                          bool( scene.get( 'mt_debug_raw', 0 ) ), bool( material.isAlphaBlended() ),
-                         bool( receive ), internal ] )
+                         bool( receive ), internal, cbs ] )
 
 def _find_group( kind, key ):
     for g in bpy.data.node_groups:
@@ -889,7 +893,10 @@ def _shader_group( prog, db, scene, material, images, fetches, receive, internal
     return g, uvg, members
 
 
-def _sampler_settings( node, state ):
+def _sampler_settings( node, state, material=None ):
+    # the MRL's samplerstate cmd for this sampler, when it picks another state
+    if material is not None:
+        state = next( ( c.data for c in material.cmds if c.type == 'samplerstate' and c.name == state and c.data ), state )
     node.interpolation = 'Closest' if 'Point' in state else 'Linear'
     node.extension = 'EXTEND' if state in ( 'SSToonMap', 'SSClamp' ) or 'Clamp' in state or 'Border' in state else 'REPEAT'
 
@@ -972,7 +979,7 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
             img.alpha_mode = 'CHANNEL_PACKED'
         except Exception:
             pass
-        _sampler_settings( t, state )
+        _sampler_settings( t, state, material )
         tree.links.new( ug.outputs[name + ' UV'], t.inputs['Vector'] )
         tree.links.new( t.outputs['Color'], sg.inputs[name] )
         tree.links.new( t.outputs['Alpha'], sg.inputs[name + ' Alpha'] )
@@ -993,6 +1000,14 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
         bpy_material['mt_images'] = json.dumps( { k: v.name for k, v in images.items() if v is not None } )
     except Exception:
         pass
+    from . import mt_mrl_props
+    if not isinstance( material, StoredMaterial ) and not getattr( material, '_from_entry', False ):
+        # the import: the full MRL entry becomes the material's editable copy
+        mt_mrl_props.fill_entry( bpy_material, material, images )
+    if mt_mrl_props.has_entry( bpy_material ):
+        mt_mrl_props.push_nodes( bpy_material )
+    if 'mt_needs_rebuild' in bpy_material.keys():
+        del bpy_material['mt_needs_rebuild']
     bpy_material['mt_receive'] = bool( receive )
     bpy_material['mt_program'] = prog.record
     bpy_material['mt_ps'] = prog.ps_number
@@ -1038,6 +1053,10 @@ def read_material_edits( bpy_material ):
 
 def store_material_edits( bpy_material ):
     '''Folds the edits back into the stored MRL copy (before a rebuild or an export).'''
+    from . import mt_mrl_props
+    if mt_mrl_props.has_entry( bpy_material ):
+        mt_mrl_props.sync( bpy_material )
+        return
     if 'mt_mrl' not in bpy_material.keys():
         return
     e = read_material_edits( bpy_material )
@@ -1111,21 +1130,35 @@ def link_scene_drivers( scene ):
 
 def rebuild_all( context, logger=None ):
     """Recompiles every exact material for the scene as it is now (lights, light mask)."""
+    from . import mt_mrl_props
     done = 0
     for mat in bpy.data.materials:
-        if 'mt_mrl' not in mat.keys() or 'mt_ia' not in mat.keys():
+        if 'mt_mrl' in mat.keys() and 'mt_ia' in mat.keys() and not mt_mrl_props.has_entry( mat ):
+            try:
+                mt_mrl_props.adopt_legacy( mat )
+            except Exception as e:
+                if logger: logger.warn( f'could not read the MRL entry of {mat.name}: {e}' )
+    mt_mrl_props.sync()
+    for mat in bpy.data.materials:
+        if 'mt_ia' not in mat.keys() or not mt_mrl_props.has_entry( mat ):
             continue
         try:
-            store_material_edits( mat )
-            material = StoredMaterial( json.loads( mat['mt_mrl'] ) )
-            images = { k: bpy.data.images.get( v ) for k, v in json.loads( mat.get( 'mt_images', '{}' ) ).items() }
-            if build_exact_material( mat, material, mat['mt_ia'], images, context, logger, receive=mat.get( 'mt_receive', True ) ) is not None:
+            if rebuild_from_entry( mat, context, logger ):
                 done += 1
         except Exception as e:
             if logger: logger.warn( f'could not rebuild {mat.name}: {e}' )
     link_scene_drivers( context.scene )
     refresh_outlines( context )
     return done
+
+
+def rebuild_from_entry( mat, context, logger=None ):
+    '''Recompiles one material from its MRL entry. False when the game has no shader for it
+    (the material keeps the shader it had).'''
+    from . import mt_mrl_props
+    info = mt_mrl_props.info_from_entry( mat )
+    images = mt_mrl_props.entry_images( mat )
+    return build_exact_material( mat, info, mat['mt_ia'], images, context, logger, receive=mat.get( 'mt_receive', True ) ) is not None
 
 
 def link_point_light( scene ):

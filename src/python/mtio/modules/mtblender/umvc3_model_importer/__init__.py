@@ -64,6 +64,10 @@ def registerAddonModules():
     from .bpy_classes import classes
     _force_unregister(classes)
 
+    # Material.mt_entry (the editable MRL entry) before the panels that draw it
+    from .modules import mt_mrl_props
+    mt_mrl_props.register()
+
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -94,6 +98,11 @@ def unregisterAddonModules():
             bpy.utils.unregister_class(cls)
         except RuntimeError as e:
             print(f'Failed to unregister thing; Error="{e}" ; Traceback=\n{traceback.format_exc()}')
+    try:
+        from .modules import mt_mrl_props
+        mt_mrl_props.unregister()
+    except Exception:
+        pass
 
     _drop_scene_props()
     _modulesRegistered = False

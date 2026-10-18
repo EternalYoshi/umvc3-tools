@@ -1,99 +1,60 @@
-'''Writes an .mrl from the game shader materials.
+'''Writes an .mrl (and its .mrl.yml) from the game shader materials.
 
-The imported .mrl is the base, so everything Blender doesn't show (sampler states, blend
-states, animation data, materials no mesh uses) goes back out unchanged. What the user edits
-on the material level replaces the matching MRL values:
-
-    MT Shader / MT UV group inputs   -> cbuffer members (fDiffuseColor, fShininess, ...)
-    image nodes named mt_tex:<slot>  -> texture paths
-'''
+Every Blender material carries its full MRL entry (Material.mt_entry, see mt_mrl_props),
+so the export is the imported .mrl with each entry swapped for the edited one. Materials no
+mesh uses go back out unchanged, in their original order. The texture list is rebuilt from
+what the materials reference, keeping the types of the entries that were there.'''
 import os
-import json
 import collections
 
 import bpy
 
 from ..mtlib.immaterial import imMaterialLib, imMaterialTextureInfo
-from . import mt_exact
+from . import mt_mrl_props
 
 
 def game_materials( src=None ):
+    '''{source mrl path: [blender materials]}'''
     out = collections.defaultdict( list )
     for m in bpy.data.materials:
-        if 'mt_mrl' not in m.keys():
+        if not mt_mrl_props.has_entry( m ) and 'mt_mrl' not in m.keys():
             continue
         path = m.get( 'mt_mrl_path', '' )
         if src is None or os.path.normcase( os.path.abspath( path ) ) == os.path.normcase( os.path.abspath( src ) ):
             out[path].append( m )
     return out
 
-def texture_path( img, original, native_dir ):
-    '''game path (no extension, backslashes) for an image on a texture slot'''
-    p = img.get( 'mt_tex_path' ) if img is not None else None
-    if p:
-        return p, None
-    fp = bpy.path.abspath( img.filepath_raw or img.filepath ) if img is not None else ''
-    if fp and native_dir:
-        rel = os.path.relpath( os.path.abspath( fp ), os.path.abspath( native_dir ) )
-        if not rel.startswith( '..' ):
-            return os.path.splitext( rel )[0].replace( '/', '\\' ), None
-    return original, f'image "{getattr( img, "name", "?" )}" is not inside the game folder, kept the old path {original}'
-
-def _same( a, b, eps=1e-6 ):
-    return len( a ) == len( b ) and all( abs( float( x ) - float( y ) ) <= eps for x, y in zip( a, b ) )
-
 def build_library( src, logger=None ):
-    '''The source .mrl with the Blender edits applied. Returns (imMaterialLib, notes).'''
+    '''The source .mrl with the Blender entries applied. Returns (imMaterialLib, notes).'''
+    for ms in game_materials( src ).values():
+        for m in ms:
+            if not mt_mrl_props.has_entry( m ):
+                mt_mrl_props.adopt_legacy( m )
+    notes = mt_mrl_props.sync()
     lib = imMaterialLib()
     lib.loadBinaryFile( src )
-    notes = []
-    native = bpy.context.scene.get( 'mt_game_native_dir', '' )
-    by_name = collections.defaultdict( list )
-    for path, ms in game_materials( src ).items():
-        for m in ms:
-            stored = json.loads( m['mt_mrl'] )
-            by_name[stored.get( 'name' )].append( m )
-    for mi in lib.materials:
-        variants = by_name.get( mi.name )
-        if not variants:
+    by_orig = {}
+    for ms in game_materials( src ).values():
+        for m in sorted( ms, key=lambda m: m.name ):
+            by_orig.setdefault( m.get( 'mt_entry_orig', m.mt_entry.name ), m )
+    errors = []
+    for i, mi in enumerate( lib.materials ):
+        m = by_orig.get( mi.name )
+        if m is None:
             continue
-        # one MRL material can show up as several Blender materials (one per vertex layout);
-        # take the one that was edited, and say so if two disagree
-        edits = [ ( m, mt_exact.read_material_edits( m ) ) for m in sorted( variants, key=lambda m: m.name ) ]
-        orig = { c.name: list( c.data ) for c in mi.cmds if c.type == 'cbuffer' }
-        def changed( e ):
-            return any( not _same( v, orig.get( k, v ) ) for k, v in e['cbuffers'].items() if k in orig )
-        chosen = next( ( e for m, e in edits if changed( e ) ), edits[0][1] )
-        others = [ m.name for m, e in edits if changed( e ) and e is not chosen and
-                   any( not _same( e['cbuffers'][k], chosen['cbuffers'].get( k, [] ) ) for k in e['cbuffers'] if k in orig ) ]
-        if others:
-            notes.append( f'{mi.name}: {", ".join( others )} differ from the edited copy, used {next( m.name for m, e in edits if e is chosen )}' )
-        flags = {}
-        for m, e in edits:
-            for t, n, v in json.loads( m['mt_mrl'] ).get( 'cmds', [] ):
-                if t == 'flag':
-                    orig_flag = next( ( c.data for c in mi.cmds if c.type == 'flag' and c.name == n ), v )
-                    if v != orig_flag:
-                        flags.setdefault( n, v )
-        for c in mi.cmds:
-            if c.type == 'flag' and c.name in flags:
-                c.data = flags[c.name]
-            elif c.type == 'cbuffer' and c.name in chosen['cbuffers']:
-                vals = chosen['cbuffers'][c.name][:len( c.data )]
-                if len( vals ) == len( c.data ):
-                    c.data = type( c.data )( vals ) if isinstance( c.data, tuple ) else list( vals )
-            elif c.type == 'texture':
-                img = None
-                for m, e in edits:
-                    if c.name in e['textures']:
-                        img = e['textures'][c.name]
-                        break
-                if img is not None:
-                    path, note = texture_path( img, c.data, native )
-                    if note:
-                        notes.append( f'{mi.name} {c.name}: {note}' )
-                    c.data = path
-    # texture list: what the materials reference, keeping the existing entries' types
+        errors += [ f'{mi.name}: {p}' for p in mt_mrl_props.problems( m ) ]
+        lib.materials[i] = mt_mrl_props.info_from_entry( m )
+        for c in lib.materials[i].cmds:
+            if c.type == 'texture':
+                img = next( ( x.image for x in m.mt_entry.cmds if x.kind == 'texture' and x.slot == c.name ), None )
+                if img is not None and not img.get( 'mt_tex_path' ):
+                    notes.append( f'{mi.name} {c.name}: points at {c.data or "(empty)"}; the image "{img.name}" has to be exported there as a .tex' )
+    names = [ x.name for x in lib.materials ]
+    dup = sorted( { n for n in names if names.count( n ) > 1 } )
+    if dup:
+        errors.append( 'two materials share a name: ' + ', '.join( dup ) )
+    if errors:
+        raise ValueError( 'the .mrl can not be written:\n' + '\n'.join( errors ) )
     used = []
     for mi in lib.materials:
         for c in mi.cmds:
@@ -115,7 +76,7 @@ def export_mrl( out_path, src=None, write_yml=True, logger=None ):
             raise RuntimeError( 'no game shader materials in this file' )
         src = max( groups, key=lambda k: len( groups[k] ) )
     if not src or not os.path.exists( src ):
-        raise RuntimeError( f'the source mrl {src!r} is gone; it is the base the edits are applied to' )
+        raise RuntimeError( f'the source mrl {src!r} is gone; it holds the materials no mesh uses' )
     lib, notes = build_library( src, logger )
     lib.saveBinaryFile( out_path )
     if write_yml:
