@@ -34,6 +34,9 @@ class Emitter:
         self.x0, self.y0 = x0, y0
         self.tex = {}           # ir tex id -> (color, alpha, separate)
         self.created = 0
+        # texture fetches sampled outside this tree: their coordinates aren't built here,
+        # bind.external_texture(id, sampler) hands back the colour / alpha sockets
+        self.external = set()
 
     # ---------------------------------------------------------------- helpers
     def _place(self, node, depth):
@@ -85,7 +88,8 @@ class Emitter:
             if node[0] == 'op':
                 stack.extend(node[2:])
             elif node[0] == 'tex':
-                stack.extend(node[3])
+                if i not in self.external:
+                    stack.extend(node[3])
             elif node[0] == 'texc':
                 stack.append(node[1])
         return sorted(want)
@@ -120,6 +124,13 @@ class Emitter:
                 self.sock[i] = self.bind.vface(); self.depth[i] = 0
             elif kind == 'vpos':
                 self.sock[i] = self.bind.vpos(node[1]); self.depth[i] = 0
+            elif kind == 'tex' and i in self.external:
+                color, alpha = self.bind.external_texture(i, node[1])
+                sep = self.nodes.new('ShaderNodeSeparateColor')
+                self.links.new(color, sep.inputs[0])
+                self._place(sep, 1)
+                self.tex[i] = (sep, alpha)
+                self.depth[i] = 1
             elif kind == 'tex':
                 coords = [self.sock[x] for x in node[3]]
                 dep = self.d(*node[3])
@@ -172,7 +183,26 @@ class Emitter:
         raise NotImplementedError(name)
 
 
-def emit(tree, b, bind, x0=-4000, y0=0):
+def independent_textures(b):
+    '''IR texture fetches whose coordinates don't depend on another fetch (plain uv maps and
+    uv transforms, as opposed to toon ramp or env lookups): {tex id: sampler}'''
+    g = b.g
+    # ids are created children first, so one forward pass settles every node
+    dep = [False] * len(g.nodes)
+    for i, node in enumerate(g.nodes):
+        if node[0] in ('tex', 'texc'):
+            dep[i] = True
+        elif node[0] == 'op':
+            dep[i] = any(dep[x] for x in node[2:])
+    out = {}
+    for i, node in enumerate(g.nodes):
+        if node[0] == 'tex' and not any(dep[x] for x in node[3]):
+            out[i] = node[1]
+    return out
+
+
+def emit(tree, b, bind, x0=-4000, y0=0, external=None):
     e = Emitter(tree, b, bind, x0, y0)
+    e.external = set(external or ())
     out, kill = e.emit()
     return out, kill, e

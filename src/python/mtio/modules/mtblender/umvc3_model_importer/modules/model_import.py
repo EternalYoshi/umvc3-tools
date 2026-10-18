@@ -178,7 +178,7 @@ class SUB_PT_Model_Import_Rendering(Panel):
                 row = layout.row(align=True)
                 row.prop(mip, 'mt_point_light')
                 for key, label in (('mt_light_mask', 'Light Mask'), ('mt_outenc', 'Shader Set (1 fight, 0 super cut-in)'),
-                                   ('mt_outline_push', 'Outline Push Back (then Rebuild)')):
+                                   ('mt_outline_push', 'Outline Push Back (renders only)')):
                     if key in scene.keys():
                         row = layout.row(align=True)
                         row.prop(scene, '["%s"]' % key, text=label)
@@ -188,6 +188,8 @@ class SUB_PT_Model_Import_Rendering(Panel):
                     row.operator(SUB_OP_ApplyFaceGroup.bl_idname, icon='HIDE_OFF', text='')
                 row = layout.row(align=True)
                 row.operator(SUB_OP_RebuildGameShaders.bl_idname, icon='FILE_REFRESH', text='Rebuild Game Shaders')
+                row = layout.row(align=True)
+                row.operator(SUB_OP_ExportGameMRL.bl_idname, icon='EXPORT', text='Export MRL')
                 row = layout.row(align=True)
                 row.operator(SUB_OP_RenderGamePost.bl_idname, icon='RENDER_STILL', text='Render With Game Bloom')
 
@@ -218,6 +220,36 @@ class SUB_OP_ApplyFaceGroup(bpy.types.Operator):
         from . import mt_exact
         n = mt_exact.apply_face_group(context.scene)
         self.report({'INFO'}, f'face group {context.scene.get("mt_face_group")}, {n} primitives hidden')
+        return {'FINISHED'}
+
+
+class SUB_OP_ExportGameMRL(bpy.types.Operator, ExportHelper):
+    """Write an .mrl from the game shader materials: the imported .mrl with the values and textures edited on each material (MT Shader / MT UV inputs, the texture slot image nodes)"""
+
+    bl_idname = "sub.mt_export_mrl"
+    bl_label = "Export MRL"
+    filename_ext = ".mrl"
+    filter_glob: bpy.props.StringProperty(default="*.mrl", options={'HIDDEN'})
+    write_yml: bpy.props.BoolProperty(name="Also write .mrl.yml", default=True)
+
+    def invoke(self, context, event):  # pragma: no cover
+        from . import mt_mrl
+        groups = mt_mrl.game_materials()
+        if groups and not self.filepath:
+            src = max(groups, key=lambda k: len(groups[k]))
+            self.filepath = src
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        from . import mt_mrl
+        from .blender_plugin import plugin
+        try:
+            src, notes = mt_mrl.export_mrl(self.filepath, write_yml=self.write_yml, logger=plugin.logger)
+        except Exception as e:
+            self.report({'ERROR'}, 'MRL export failed: %s' % e)
+            return {'CANCELLED'}
+        self.report({'WARNING'} if notes else {'INFO'},
+                    'wrote %s%s' % (os.path.basename(self.filepath), (' (%d notes in the log)' % len(notes)) if notes else ''))
         return {'FINISHED'}
 
 

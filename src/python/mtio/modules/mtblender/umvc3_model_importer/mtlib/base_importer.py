@@ -409,6 +409,7 @@ class ModelImporterBase(ABC):
         # load mtl
         mtl = imMaterialLib()
         mrlName, _ = util.getExtractedResourceFilePath( self.basePath + '/' + self.baseName, '2749c8a8', 'mrl' )
+        self.mrlPath = mrlName if ( mrlName != None and os.path.exists( mrlName ) ) else ''
         if mrlName != None and os.path.exists( mrlName ):
             self.logger.info(f'loading mrl file from {mrlName}')
             mtl.loadBinaryStream(NclBitStream(util.loadIntoByteArray(mrlName)))

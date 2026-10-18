@@ -631,39 +631,206 @@ def _srgb_decode( b, sock ):
     return mix.outputs[0]
 
 
-def build_exact_material( bpy_material, material, ia, images, context, logger=None, receive=True ):
-    '''Replaces the material's graph with the compiled game shader. Returns the Program or
-    None when the game files aren't found or the game has no shader for this combination.'''
-    scene = context.scene
-    native = scene.get( 'mt_game_native_dir', '' )
-    if not native or not os.path.isdir( native ):
-        return None
-    try:
-        db = mtshaders.ShaderDB.get( native )
-    except Exception as e:
-        if logger: logger.warn( f'could not read the game shaders from {native}: {e}' )
-        return None
-    # output encode 1 is the fight view; 0 is what the game uses for the super cut-in
-    # close up, drawn on top of the finished frame
-    prog, ti = pick_program( db, material, ia, images, scene, outenc=int( scene.get( 'mt_outenc', 1 ) ), receive=receive )
-    if prog is None:
-        if logger: logger.warn( f'no game shader for {material.name} ({ia})' )
-        return None
-    ensure_renderer_props( scene )
-    b = sm3ir.build( prog.ps )
+# ----------------------------------------------------------------------------------------
+# legible materials: the compiled shader lives in a node group per game program, the
+# material shows the MRL's textures as image nodes and its constants as named sockets
+# ----------------------------------------------------------------------------------------
 
-    tree = bpy_material.node_tree
-    for nd in list( tree.nodes ):
-        tree.nodes.remove( nd )
-    out = tree.nodes.new( 'ShaderNodeOutputMaterial' )
-    out.location = ( 400, 0 )
-    bind = Bind( tree, material, images, prog, db, scene )
+SHADER_GROUP_VERSION = 1
+MATERIAL_CBUFFERS_EDITABLE = ( '$Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
+
+def _iface_sockets( tree, in_out ):
+    if hasattr( tree, 'interface' ):
+        return [ it for it in tree.interface.items_tree if getattr( it, 'item_type', 'SOCKET' ) == 'SOCKET' and it.in_out == in_out ]
+    return list( tree.inputs if in_out == 'INPUT' else tree.outputs )
+
+def cbuffer_member( cb, index, data_len ):
+    '''float index inside a cbuffer -> (member, first float, float count)'''
+    members = mtshaders.cbuffer_layouts().get( cb, [] )
+    best = None
+    for k, ( off, name, packed ) in enumerate( members ):
+        if off <= index:
+            nxt = members[k + 1][0] if k + 1 < len( members ) else data_len
+            best = ( name, off, max( 1, nxt - off ) )
+        else:
+            break
+    if best is None:
+        return 'c%d' % index, index, 1
+    return best
+
+def _is_colour( name ):
+    return 'Color' in name or 'Colour' in name
+
+def member_sockets( name, size ):
+    '''how a cbuffer member shows on the group: [(socket name, socket type, [float indices])]
+    colours as Color sockets, other vectors as Vector, a trailing w as its own Float'''
+    out = []
+    rows = [ list( range( r, min( r + 4, size ) ) ) for r in range( 0, size, 4 ) ]
+    for ri, idx in enumerate( rows ):
+        label = name if len( rows ) == 1 else '%s[%d]' % ( name, ri )
+        if len( idx ) == 1:
+            out.append( ( label, 'NodeSocketFloat', idx ) )
+            continue
+        head, tail = idx[:3], idx[3:]
+        stype = 'NodeSocketColor' if ( _is_colour( name ) and len( head ) == 3 ) else 'NodeSocketVector'
+        out.append( ( label, stype, head ) )
+        for t in tail:
+            out.append( ( label + '.w', 'NodeSocketFloat', [ t ] ) )
+    return out
+
+
+class GroupBind( Bind ):
+    '''Bind for a shader built inside a node group. MRL constants become group inputs named
+    after the cbuffer members, textures sampled outside the group come in as Color / Alpha.'''
+
+    def __init__( self, tree, material, images, prog, db, scene, x0=-5000 ):
+        super().__init__( tree, material, images, prog, db, scene, x0 )
+        self.gin = self.n.new( 'NodeGroupInput' )
+        self.gin.location = ( x0 - 1200, 0 )
+        self.members = {}          # member -> dict(cb, off, size, sockets {float idx: socket})
+        self.external = {}         # ir tex id -> input name
+        self.order = []            # interface order (names)
+
+    def _input( self, name, stype ):
+        names = [ s.name for s in _iface_sockets( self.tree, 'INPUT' ) ]
+        if name not in names:
+            _gn_socket( self.tree, name, stype, 'INPUT' )
+            self.order.append( name )
+        return self.gin.outputs[name]
+
+    def param( self, cb, index, data ):
+        name, off, size = cbuffer_member( cb, index, len( data ) )
+        m = self.members.get( name )
+        if m is None:
+            m = self.members[name] = dict( cb=cb, off=off, size=size, comps={} )
+        k = index - off
+        if k not in m['comps']:
+            for label, stype, idx in member_sockets( name, size ):
+                if k in idx:
+                    sock = self._input( label, stype )
+                    if len( idx ) == 1:
+                        m['comps'][k] = sock
+                    else:
+                        sep = self.node( 'ShaderNodeSeparateColor' if stype == 'NodeSocketColor' else 'ShaderNodeSeparateXYZ' )
+                        self.l.new( sock, sep.inputs[0] )
+                        for j, fi in enumerate( idx ):
+                            m['comps'][fi] = sep.outputs[j]
+                    break
+        return m['comps'].get( k, 0.0 )
+
+    def const( self, reg, comp, ctab=None ):
+        c, row = self.ctab_entry( reg, ctab )
+        if c is None:
+            return 0.0
+        cb, off = mtshaders.ctab_location( c['name'] )
+        if cb is not None:
+            data = self.material.getCBuffer( cb )
+            if data is not None:
+                i = off + row * 4 + comp
+                if i >= len( data ):
+                    return 0.0
+                if cb in MATERIAL_CBUFFERS_EDITABLE:
+                    return self.param( cb, i, data )
+                return float( data[i] )
+        return super().const( reg, comp, ctab )
+
+    def external_texture( self, i, sampler ):
+        name = self.external[i]
+        col = self._input( name, 'NodeSocketColor' )
+        a = self._input( name + ' Alpha', 'NodeSocketFloat' )
+        return col, a
+
+    def tidy( self ):
+        '''textures first, then constants in cbuffer order'''
+        if not hasattr( self.tree, 'interface' ):
+            return
+        tex = [ n for n in self.order if n in self.external.values() or n[:-6] in self.external.values() ]
+        rank = {}
+        for name, m in self.members.items():
+            for label, stype, idx in member_sockets( name, m['size'] ):
+                cbi = MATERIAL_CBUFFERS_EDITABLE.index( m['cb'] ) if m['cb'] in MATERIAL_CBUFFERS_EDITABLE else 99
+                rank[label] = ( 1, cbi, m['off'] + idx[0] )
+        for k, n in enumerate( tex ):
+            rank[n] = ( 0, k, 0 )
+        want = sorted( ( it.name for it in _iface_sockets( self.tree, 'INPUT' ) ), key=lambda n: rank.get( n, ( 2, 0, 0 ) ) )
+        for pos, n in enumerate( want ):
+            items = _iface_sockets( self.tree, 'INPUT' )
+            base = min( it.position for it in items )
+            it = next( x for x in items if x.name == n )
+            try:
+                self.tree.interface.move( it, base + pos )
+            except Exception:
+                pass
+
+
+def _texture_slot_name( bind, sampler ):
+    state, _, slot = bind.sampler_name( sampler ).partition( '__' )
+    return state, slot
+
+def _editable_fetches( b, bind, material, images ):
+    '''IR fetches to sample on the material level: MRL texture slots with an image, whose
+    coordinates don't depend on another fetch. {tex id: (input name, slot, sampler state)}'''
     from ..mtlib import sm3nodes
-    res, kill, em = sm3nodes.emit( tree, b, bind, x0=-4000, y0=0 )
+    slots = { c.name for c in material.cmds if c.type == 'texture' }
+    out = {}
+    seen = {}
+    for i, s in sorted( sm3nodes.independent_textures( b ).items() ):
+        if b.g.nodes[i][2] != '2d':
+            continue
+        state, slot = _texture_slot_name( bind, s )
+        if slot not in slots or images.get( slot ) is None:
+            continue
+        seen[slot] = seen.get( slot, 0 ) + 1
+        name = slot if seen[slot] == 1 else '%s %d' % ( slot, seen[slot] )
+        out[i] = ( name, slot, state )
+    return out
+
+def _internal_images( b, probe, images, fetches ):
+    '''images the group samples itself (toon ramps, env maps): [(slot, image)]'''
+    out = {}
+    for i, node in enumerate( b.g.nodes ):
+        if node[0] == 'tex' and i not in fetches:
+            state, slot = _texture_slot_name( probe, node[1] )
+            img = ( images or {} ).get( slot )
+            if img is not None:
+                out[slot] = img
+    return sorted( out.items() )
+
+def _group_key( prog, scene, material, images, fetches, receive, internal ):
+    internal = [ ( k, v.name ) for k, v in internal ]
+    return json.dumps( [ SHADER_GROUP_VERSION, prog.record, int( scene.get( 'mt_outenc', 1 ) ),
+                         bool( scene.get( 'mt_debug_raw', 0 ) ), bool( material.isAlphaBlended() ),
+                         bool( receive ), internal ] )
+
+def _find_group( kind, key ):
+    for g in bpy.data.node_groups:
+        if g.get( 'mt_kind' ) == kind and g.get( 'mt_key' ) == key:
+            return g
+    return None
+
+def _shader_group( prog, db, scene, material, images, fetches, receive, internal, ia=None, logger=None ):
+    key = _group_key( prog, scene, material, images, fetches, receive, internal )
+    g = _find_group( 'shader', key )
+    if g is not None:
+        return g, _find_group( 'uv', key ), json.loads( g['mt_members'] )
+    names = [ os.path.splitext( v.name )[0] for k, v in internal ]
+    ia_short = str( ia or '' ).replace( 'IASkin', '' ).replace( 'IA', '' )
+    base = 'MT Shader PS%d %s' % ( prog.ps_number, ia_short ) + ( ' (%s)' % ', '.join( names ) if names else '' )
+    g = bpy.data.node_groups.new( base, 'ShaderNodeTree' )
+    g['mt_kind'] = 'shader'; g['mt_key'] = key
+    from ..mtlib import sm3nodes
+    b = sm3ir.build( prog.ps )
+    bind = GroupBind( g, material, images, prog, db, scene )
+    bind.external = { i: f[0] for i, f in fetches.items() }
+    res, kill, em = sm3nodes.emit( g, b, bind, x0=-4000, y0=0, external=fetches.keys() )
     oc = res.get( 'oC0' )
     if oc is None:
-        return None
-
+        bpy.data.node_groups.remove( g )
+        return None, None, None
+    gout = g.nodes.new( 'NodeGroupOutput' ); gout.location = ( 800, 0 )
+    _gn_socket( g, 'Shader', 'NodeSocketShader', 'OUTPUT' )
+    _gn_socket( g, 'Color', 'NodeSocketColor', 'OUTPUT' )
+    _gn_socket( g, 'Alpha', 'NodeSocketFloat', 'OUTPUT' )
     # HDR compress: the scene target holds colour * fHDRCompressEncode, post multiplies by
     # fHDRCompressDecode. Undo it here so the material shows the decoded colour.
     hdr = bind.scene_vec4( scene_prop_name( 'CBHDRFactor__packed0', 0 ) )
@@ -679,37 +846,151 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
     comb = bind.node( 'ShaderNodeCombineColor' )
     for k in range( 3 ):
         bind.feed( comb.inputs[k], rgb[k] )
-    emit = tree.nodes.new( 'ShaderNodeEmission' )
-    emit.location = ( 0, 0 )
-    tree.links.new( comb.outputs[0], emit.inputs['Color'] )
-
-    alpha = 1.0
-    if material.isAlphaBlended():
-        alpha = oc[3]
+    emit = g.nodes.new( 'ShaderNodeEmission' ); emit.location = ( 400, 0 )
+    g.links.new( comb.outputs[0], emit.inputs['Color'] )
+    alpha = oc[3] if material.isAlphaBlended() else 1.0
     if kill is not None:
-        # texkill only drops pixels with a component below 0; the shader's cmp writes -0 for kept
-        # pixels, so a kill value of exactly 0 has to survive
+        # texkill only drops pixels with a component below 0; the shader's cmp writes -0 for
+        # kept pixels, so a kill value of exactly 0 has to survive
         keep = bind.m( 'SUBTRACT', 1.0, bind.m( 'GREATER_THAN', kill, 0.0 ) ) if _is_sock( kill ) else ( 0.0 if kill > 0 else 1.0 )
         alpha = bind.m( 'MULTIPLY', keep, alpha ) if ( _is_sock( keep ) or _is_sock( alpha ) ) else keep * alpha
-    if alpha == 1.0:
-        tree.links.new( emit.outputs[0], out.inputs['Surface'] )
-    else:
-        tr = tree.nodes.new( 'ShaderNodeBsdfTransparent' )
-        mx = tree.nodes.new( 'ShaderNodeMixShader' )
-        mx.location = ( 200, 0 )
-        a = bind.m( 'MINIMUM', bind.m( 'MAXIMUM', alpha, 0.0 ), 1.0 ) if _is_sock( alpha ) else alpha
-        bind.feed( mx.inputs['Fac'], a )
-        tree.links.new( tr.outputs[0], mx.inputs[1] )
-        tree.links.new( emit.outputs[0], mx.inputs[2] )
-        tree.links.new( mx.outputs[0], out.inputs['Surface'] )
+    a = bind.m( 'MINIMUM', bind.m( 'MAXIMUM', alpha, 0.0 ), 1.0 ) if _is_sock( alpha ) else float( alpha )
+    tr = g.nodes.new( 'ShaderNodeBsdfTransparent' ); tr.location = ( 400, -150 )
+    mx = g.nodes.new( 'ShaderNodeMixShader' ); mx.location = ( 600, 0 )
+    bind.feed( mx.inputs['Fac'], a )
+    g.links.new( tr.outputs[0], mx.inputs[1] )
+    g.links.new( emit.outputs[0], mx.inputs[2] )
+    g.links.new( mx.outputs[0], gout.inputs['Shader'] )
+    g.links.new( comb.outputs[0], gout.inputs['Color'] )
+    bind.feed( gout.inputs['Alpha'], a )
+    bind.tidy()
+    g['mt_blend'] = 'BLEND' if material.isAlphaBlended() else ( 'CLIP' if kill is not None else 'OPAQUE' )
+
+    uvg = None
+    if fetches:
+        uvg = bpy.data.node_groups.new( 'MT UV PS%d %s' % ( prog.ps_number, ia_short ), 'ShaderNodeTree' )
+        uvg['mt_kind'] = 'uv'; uvg['mt_key'] = key
+        ub = GroupBind( uvg, material, images, prog, db, scene )
+        ue = sm3nodes.Emitter( uvg, b, ub, x0=-3000, y0=0 )
+        uout = uvg.nodes.new( 'NodeGroupOutput' ); uout.location = ( 600, 0 )
+        for i, ( name, slot, state ) in sorted( fetches.items(), key=lambda kv: kv[1][0] ):
+            coords = ue.emit_roots( list( b.g.nodes[i][3][:2] ) )
+            _gn_socket( uvg, name + ' UV', 'NodeSocketVector', 'OUTPUT' )
+            cmb = ub.node( 'ShaderNodeCombineXYZ' )
+            ub.feed( cmb.inputs[0], coords[0] )
+            ub.feed( cmb.inputs[1], ub.m( 'SUBTRACT', 1.0, coords[1] ) if _is_sock( coords[1] ) else 1.0 - coords[1] )
+            uvg.links.new( cmb.outputs[0], uout.inputs[name + ' UV'] )
+        ub.tidy()
+        bind.members.update( { k: v for k, v in ub.members.items() if k not in bind.members } )
+    members = { k: dict( cb=v['cb'], off=v['off'], size=v['size'] ) for k, v in bind.members.items() }
+    g['mt_members'] = json.dumps( members )
+    if logger:
+        logger.info( f'{g.name}: {em.created} nodes, {len( members )} material constants, {len( fetches )} textures outside' )
+    return g, uvg, members
+
+
+def _sampler_settings( node, state ):
+    node.interpolation = 'Closest' if 'Point' in state else 'Linear'
+    node.extension = 'EXTEND' if state in ( 'SSToonMap', 'SSClamp' ) or 'Clamp' in state or 'Border' in state else 'REPEAT'
+
+def _set_socket( sock, values ):
+    try:
+        if sock.type == 'RGBA':
+            sock.default_value = ( values[0], values[1], values[2], 1.0 )
+        elif sock.type == 'VECTOR':
+            sock.default_value = tuple( values[:3] ) + ( 0.0, ) * ( 3 - len( values[:3] ) )
+        else:
+            sock.default_value = values[0]
+    except Exception:
+        pass
+
+def _get_socket( sock ):
+    v = sock.default_value
+    if sock.type == 'RGBA':
+        return [ float( v[0] ), float( v[1] ), float( v[2] ) ]
+    if sock.type == 'VECTOR':
+        return [ float( v[0] ), float( v[1] ), float( v[2] ) ]
+    return [ float( v ) ]
+
+def _member_values( material, cb, off, size ):
+    data = material.getCBuffer( cb ) or []
+    return [ float( data[off + k] ) if off + k < len( data ) else 0.0 for k in range( size ) ]
+
+
+def build_exact_material( bpy_material, material, ia, images, context, logger=None, receive=True ):
+    '''Lays the material out as: the MRL's textures (image nodes) -> MT Shader group (the
+    compiled game shader, shared by every material on that program, with the MRL constants as
+    named inputs) -> Material Output. Returns the Program or None when the game files aren't
+    found or the game has no shader for this combination.'''
+    scene = context.scene
+    native = scene.get( 'mt_game_native_dir', '' )
+    if not native or not os.path.isdir( native ):
+        return None
+    try:
+        db = mtshaders.ShaderDB.get( native )
+    except Exception as e:
+        if logger: logger.warn( f'could not read the game shaders from {native}: {e}' )
+        return None
+    images = images or {}
+    # output encode 1 is the fight view; 0 is what the game uses for the super cut-in
+    # close up, drawn on top of the finished frame
+    prog, ti = pick_program( db, material, ia, images, scene, outenc=int( scene.get( 'mt_outenc', 1 ) ), receive=receive )
+    if prog is None:
+        if logger: logger.warn( f'no game shader for {material.name} ({ia})' )
+        return None
+    ensure_renderer_props( scene )
+    probe = GroupBind.__new__( GroupBind )
+    probe.ctab = sorted( prog.ps.ctab['consts'] if prog.ps.ctab else [], key=lambda c: c['idx'] )
+    psb = sm3ir.build( prog.ps )
+    fetches = _editable_fetches( psb, probe, material, images )
+    internal = _internal_images( psb, probe, images, fetches )
+    g, uvg, members = _shader_group( prog, db, scene, material, images, fetches, receive, internal, ia, logger )
+    if g is None:
+        return None
+
+    tree = bpy_material.node_tree
+    for nd in list( tree.nodes ):
+        tree.nodes.remove( nd )
+    out = tree.nodes.new( 'ShaderNodeOutputMaterial' ); out.location = ( 500, 0 )
+    sg = tree.nodes.new( 'ShaderNodeGroup' ); sg.node_tree = g
+    sg.name = sg.label = 'MT Shader'; sg.location = ( 150, 0 ); sg.width = 260
+    tree.links.new( sg.outputs['Shader'], out.inputs['Surface'] )
+    ug = None
+    if uvg is not None:
+        ug = tree.nodes.new( 'ShaderNodeGroup' ); ug.node_tree = uvg
+        ug.name = ug.label = 'MT UV'; ug.location = ( -650, 0 ); ug.width = 200
+    y = 150
+    for i, ( name, slot, state ) in sorted( fetches.items(), key=lambda kv: kv[1][0] ):
+        t = tree.nodes.new( 'ShaderNodeTexImage' )
+        t.name = 'mt_tex:' + name
+        t.label = name
+        t.location = ( -350, y ); y -= 280
+        img = images.get( slot )
+        t.image = img
         try:
-            bpy_material.blend_method = 'BLEND' if material.isAlphaBlended() else 'CLIP'
+            img.colorspace_settings.name = 'Non-Color'
+            img.alpha_mode = 'CHANNEL_PACKED'
         except Exception:
             pass
+        _sampler_settings( t, state )
+        tree.links.new( ug.outputs[name + ' UV'], t.inputs['Vector'] )
+        tree.links.new( t.outputs['Color'], sg.inputs[name] )
+        tree.links.new( t.outputs['Alpha'], sg.inputs[name + ' Alpha'] )
+    # this material's own constant values on the group sockets
+    for name, m in members.items():
+        vals = _member_values( material, m['cb'], m['off'], m['size'] )
+        for label, stype, idx in member_sockets( name, m['size'] ):
+            for node in ( sg, ug ):
+                if node is not None and label in node.inputs:
+                    _set_socket( node.inputs[label], [ vals[k] for k in idx ] )
+    try:
+        bpy_material.blend_method = g.get( 'mt_blend', 'OPAQUE' )
+    except Exception:
+        pass
     try:
         if not isinstance( material, StoredMaterial ):
             bpy_material['mt_mrl'] = StoredMaterial.dump( material )
-        bpy_material['mt_images'] = json.dumps( { k: v.name for k, v in ( images or {} ).items() if v is not None } )
+        bpy_material['mt_images'] = json.dumps( { k: v.name for k, v in images.items() if v is not None } )
     except Exception:
         pass
     bpy_material['mt_receive'] = bool( receive )
@@ -720,8 +1001,58 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
     bpy_material['mt_key'] = '%016X' % prog.key
     bpy_material['mt_template'] = ti
     if logger:
-        logger.info( f'{material.name} ({ia}): program {prog.record}, PS {prog.ps_number}, VS {prog.vs_number}, {em.created} nodes' )
+        logger.info( f'{material.name} ({ia}): program {prog.record}, PS {prog.ps_number}, VS {prog.vs_number} -> {g.name}' )
     return prog
+
+
+def read_material_edits( bpy_material ):
+    '''What the user changed on the material level: {'cbuffers': {cb: [floats]}, 'textures':
+    {slot: image}}, starting from the stored MRL values.'''
+    stored = json.loads( bpy_material.get( 'mt_mrl', '{}' ) or '{}' )
+    cbs = { k: list( v ) for k, v in stored.get( 'cbuffers', {} ).items() }
+    tex = {}
+    tree = bpy_material.node_tree
+    if tree is None:
+        return dict( cbuffers=cbs, textures=tex )
+    sg = tree.nodes.get( 'MT Shader' )
+    ug = tree.nodes.get( 'MT UV' )
+    g = sg.node_tree if sg is not None and sg.type == 'GROUP' else None
+    members = json.loads( g.get( 'mt_members', '{}' ) ) if g is not None else {}
+    for name, m in members.items():
+        data = cbs.setdefault( m['cb'], [] )
+        if len( data ) < m['off'] + m['size']:
+            data.extend( [ 0.0 ] * ( m['off'] + m['size'] - len( data ) ) )
+        for label, stype, idx in member_sockets( name, m['size'] ):
+            for node in ( sg, ug ):
+                if node is not None and label in node.inputs and not node.inputs[label].is_linked:
+                    vals = _get_socket( node.inputs[label] )
+                    for j, k in enumerate( idx ):
+                        if j < len( vals ):
+                            data[m['off'] + k] = vals[j]
+                    break
+    for nd in tree.nodes:
+        if nd.type == 'TEX_IMAGE' and nd.name.startswith( 'mt_tex:' ) and nd.image is not None:
+            slot = nd.name[len( 'mt_tex:' ):].split( ' ' )[0]
+            tex.setdefault( slot, nd.image )
+    return dict( cbuffers=cbs, textures=tex )
+
+def store_material_edits( bpy_material ):
+    '''Folds the edits back into the stored MRL copy (before a rebuild or an export).'''
+    if 'mt_mrl' not in bpy_material.keys():
+        return
+    e = read_material_edits( bpy_material )
+    stored = json.loads( bpy_material['mt_mrl'] )
+    stored['cbuffers'] = e['cbuffers']
+    bpy_material['mt_mrl'] = json.dumps( stored )
+    imgs = json.loads( bpy_material.get( 'mt_images', '{}' ) or '{}' )
+    for slot, img in e['textures'].items():
+        old = bpy.data.images.get( imgs.get( slot, '' ) )
+        # the texture format is part of the shader key; a new image without one keeps the
+        # slot's (re-export the texture in the same format)
+        if old is not None and old is not img and 'mt_tex_format' not in img.keys() and 'mt_tex_format' in old.keys():
+            img['mt_tex_format'] = old['mt_tex_format']
+        imgs[slot] = img.name
+    bpy_material['mt_images'] = json.dumps( imgs )
 
 
 def _uses_hdr( prog ):
@@ -785,6 +1116,7 @@ def rebuild_all( context, logger=None ):
         if 'mt_mrl' not in mat.keys() or 'mt_ia' not in mat.keys():
             continue
         try:
+            store_material_edits( mat )
             material = StoredMaterial( json.loads( mat['mt_mrl'] ) )
             images = { k: bpy.data.images.get( v ) for k, v in json.loads( mat.get( 'mt_images', '{}' ) ).items() }
             if build_exact_material( mat, material, mat['mt_ia'], images, context, logger, receive=mat.get( 'mt_receive', True ) ) is not None:
@@ -1079,7 +1411,7 @@ def set_outline_inputs( obj, mod, mat, scene, outline_only ):
                 # no camera yet: a typical fight camera distance; orthographic: its view size
                 mod[ident] = 400.0 if cam is None else ( float( cam.data.ortho_scale ) if cam.data.type == 'ORTHO' else 0.0 )
             elif nm == 'Keep Mesh': mod[ident] = not outline_only
-            elif nm == 'Push Back': mod[ident] = float( scene.get( 'mt_outline_push', 60.0 ) ) * float( scene.get( 'mt_unit_scale', 1.0 ) or 1.0 )
+            elif nm == 'Push Back': mod[ident] = _push_value( scene )
         except Exception:
             pass
     # setting socket values through id properties doesn't rebuild the depsgraph relations,
@@ -1184,6 +1516,9 @@ def apply_face_group( scene, objects=None ):
             continue
         g = int( o['mt_group'] )
         hide = g in UNUSED_GROUPS or ( g in FACE_GROUPS and g != face )
+        # outline-only geometry: the game never draws it in the colour pass
+        if o.get( 'mt_bridge' ) and not o.modifiers.get( 'MT Outline' ):
+            hide = True
         o.hide_viewport = hide
         o.hide_render = hide
         hidden += hide
@@ -1205,13 +1540,53 @@ def _camera_watch( scene, depsgraph=None ):
     except Exception:
         pass
 
+# The push back only lines up seen through the scene camera; from any other viewport angle
+# the pushed hull shows as a black copy of the character behind it. So it only applies
+# while a render runs, the viewport draws the hull in place.
+_rendering = { 'on': False }
+
+def _push_value( scene ):
+    if not _rendering['on']:
+        return 0.0
+    return float( scene.get( 'mt_outline_push', 60.0 ) ) * float( scene.get( 'mt_unit_scale', 1.0 ) or 1.0 )
+
+def _set_push_all( scene ):
+    for obj in scene.objects:
+        mod = obj.modifiers.get( 'MT Outline' ) if obj.type == 'MESH' else None
+        if mod is None or mod.type != 'NODES' or mod.node_group is None:
+            continue
+        for item in ( mod.node_group.interface.items_tree if hasattr( mod.node_group, 'interface' ) else mod.node_group.inputs ):
+            if getattr( item, 'name', '' ) == 'Push Back' and getattr( item, 'in_out', 'INPUT' ) == 'INPUT':
+                try:
+                    mod[item.identifier] = _push_value( scene )
+                except Exception:
+                    pass
+        obj.update_tag()
+
+@bpy.app.handlers.persistent
+def _render_pre( scene, *args ):
+    _rendering['on'] = True
+    _set_push_all( scene )
+
+@bpy.app.handlers.persistent
+def _render_post( scene, *args ):
+    _rendering['on'] = False
+    _set_push_all( scene )
+
+_HANDLERS = ( ( 'depsgraph_update_post', _camera_watch ), ( 'render_pre', _render_pre ),
+              ( 'render_post', _render_post ), ( 'render_cancel', _render_post ) )
+
 def register_handlers():
-    if _camera_watch not in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.append( _camera_watch )
+    for name, fn in _HANDLERS:
+        lst = getattr( bpy.app.handlers, name )
+        if fn not in lst:
+            lst.append( fn )
 
 def unregister_handlers():
-    if _camera_watch in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.remove( _camera_watch )
+    for name, fn in _HANDLERS:
+        lst = getattr( bpy.app.handlers, name )
+        if fn in lst:
+            lst.remove( fn )
 
 
 def ensure_game_camera( scene, unit_scale=1.0 ):

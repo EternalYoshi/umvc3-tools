@@ -144,8 +144,9 @@ class BlenderModelImporter(ModelImporterBase):
         self.importedMeshObjects.append( obj )
         obj.data.materials.append( self._materialForPrimitive( primitive.indices.getMaterialIndex(), shaderInfo.name, context,
                                                                 mt_exact.receives_shadows( getattr( primitive, 'flags', 0xffff ) ) ) )
-        if self._wantsExact( context ):
+        if self._wantsExact( context ) and context.scene.get( 'mt_exact_outlines' ):
             # the game's outline pass; the IASkinBridge meshes exist only for it
+            # (off for now: the stencil test it relies on isn't reproduced yet)
             try:
                 mt_exact.add_outline( obj, shaderInfo.name, context, self.logger, outline_only=shaderInfo.name.startswith( 'IASkinBridge' ) )
             except Exception as e:
@@ -255,6 +256,8 @@ class BlenderModelImporter(ModelImporterBase):
         self._storeTangentFrame( mesh )
         
         obj['mt_group'] = int( primitive.indices.getGroupId() )
+        # IASkinBridge primitives are only ever drawn by the outline pass
+        obj['mt_bridge'] = bool( shaderInfo.name.startswith( 'IASkinBridge' ) )
         # parent to group
         if primitive.indices.getGroupId() in self.editorGroupLookup:
             group = self.editorGroupLookup[primitive.indices.getGroupId()].unwrap()
@@ -710,8 +713,14 @@ class BlenderModelImporter(ModelImporterBase):
                 raw['mt_tex_format'] = img.get( 'mt_tex_format', 42 )
                 img = raw
             if img is not None:
+                # the game path, so an export writes the texture back where it came from
+                img['mt_tex_path'] = cmd.data
                 images[cmd.name] = img
         self._exactInfo[bpy_material.name] = ( material, images )
+        try:
+            bpy_material['mt_mrl_path'] = getattr( self, 'mrlPath', '' ) or ''
+        except Exception:
+            pass
 
     def _materialForPrimitive( self, matIndex, ia, context, receive=True ):
         base = self.editorMaterialArray[matIndex].unwrap()
