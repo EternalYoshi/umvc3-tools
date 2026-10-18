@@ -85,24 +85,24 @@ class UMVC3ModelImportProperties(PropertyGroup):
     ) 
     import_outline: BoolProperty(
         name='Add Ink Outline (EXPERIMENTAL)',
-        description='Add the black contour line the game draws around characters. Recreated in Blender with a solidify modifier and a black material.',
+        description='DOES NOT CURRENTLY WORK',
         default=False,
     )
     outline_thickness: FloatProperty(
         name='Outline Thickness (EXPERIMENTAL)',
-        description='In model units. Characters are around 260 units tall, so the default suits them; scale it up for larger models',
+        description='DOES NOT CURRENTLY WORK',
         default=0.45,
         min=0.0,
         max=20.0,
     )
     import_exact_shading: BoolProperty(
         name='Game Shaders (exact)',
-        description='With MT Shading on, compile the pixel shader the game itself runs for each material (from root.spkg) into nodes, instead of the hand built approximation. Needs the game folder',
+        description='Recreates the game\'s own shaders from root.spkg. Needs the game folder',
         default=True,
     )
     game_native_dir: StringProperty(
         name='Game Folder',
-        description='UMvC3 install folder (or its nativePCx64 folder). Found automatically when the model sits inside it or Steam is in the usual place',
+        description='UMvC3 install folder (or its nativePCx64 folder).',
         default='',
         subtype='DIR_PATH',
     )
