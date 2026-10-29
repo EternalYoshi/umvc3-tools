@@ -235,7 +235,7 @@ def resolveTexturePath( basePath, texturePath ):
         texturePathRoot = os.path.realpath( os.path.join( basePath, relTexturePathRoot ) )
     
     # find the real texture path
-    realTexturePath = os.path.join( texturePathRoot, texturePath )
+    realTexturePath = os.path.join( texturePathRoot, *texturePathParts )
     textureTEXPath, _ = getExtractedResourceFilePath( realTexturePath, '241f5deb', 'tex' )
     if textureTEXPath == None:
         # failsafe: try to look for the tex files in the current model directory in case we don't find it 

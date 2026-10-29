@@ -3,6 +3,9 @@ from ..mtlib import *
 from ..mtlib.base_importer import *
 from . import blender_plugin
 from .blender_plugin import *
+from . import mt_shading
+from . import mt_exact
+import os
 import bpy
 import mathutils
 import array
@@ -16,6 +19,10 @@ def assertBlenderMode(expectedMode:str):
         return expectedMode == 'OBJECT'
 
 class BlenderModelImporter(ModelImporterBase):
+    # Stored inverted (1 - occlusion) so anything without the attribute, a new mesh or
+    # verts joined in from elsewhere, reads 0 and stays fully lit instead of going black.
+    OCCLUSION_ATTRIBUTE = 'mt_ao_darken'
+
     def __init__(self):
         super().__init__(blender_plugin.plugin)
         self.armature = None
@@ -160,7 +167,28 @@ class BlenderModelImporter(ModelImporterBase):
                     layer.data[i].color = ( c[0], c[1], c[2], c[3] )
             except Exception as e:
                 self.logger.debug( 'could not create vertex colour layer: ' + str( e ) )
+
+        # Per vertex occlusion. The character shaders multiply the lit diffuse by it, so
+        # it goes on the mesh as a float attribute the MT Character group reads, and the
+        # exporter writes it back instead of a flat 1.
+        occ = vertexData.occlusionArray or []
+        if len( occ ) == len( verts ):
+            try:
+                attr = mesh.attributes.new( name=self.OCCLUSION_ATTRIBUTE, type='FLOAT', domain='POINT' )
+                attr.data.foreach_set( 'value', [ 1.0 - float( v ) for v in occ ] )
+            except Exception as e:
+                self.logger.debug( 'could not create occlusion attribute: ' + str( e ) )
         
+        tan = vertexData.tangentArray or []
+        if len( tan ) == len( verts ):
+            try:
+                attr = mesh.attributes.new( name='mt_tangent', type='FLOAT_VECTOR', domain='POINT' )
+                attr.data.foreach_set( 'vector', [ c for t in tan for c in t[:3] ] )
+                attr = mesh.attributes.new( name='mt_tangent_sign', type='FLOAT', domain='POINT' )
+                attr.data.foreach_set( 'value', [ float( t[3] ) for t in tan ] )
+            except Exception as e:
+                self.logger.debug( 'could not create tangent attributes: ' + str( e ) )
+
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
         # apply weights
@@ -176,10 +204,21 @@ class BlenderModelImporter(ModelImporterBase):
             # Works thanks to this stackexchange answer https://blender.stackexchange.com/a/75957
             # which a few of these comments below are also taken from
             # Do this LAST because it can remove some loops
-            mesh.create_normals_split()
+            # create_normals_split and use_auto_smooth were removed in 4.1, custom
+            # normals work without them there
+            if hasattr( mesh, 'create_normals_split' ):
+                mesh.create_normals_split()
             for face in mesh.polygons:
                 face.use_smooth = True  # loop normals have effect only if smooth shading ?
 
+            # the game's outline vertex shader pushes each vertex along its own stored normal;
+            # keep it per vertex for the outline hull (Blender's normals follow the winding,
+            # which the outline-only bridge strips don't keep consistent)
+            try:
+                gn = mesh.attributes.new( name='mt_game_normal', type='FLOAT_VECTOR', domain='POINT' )
+                gn.data.foreach_set( 'vector', [ c for n in vertexData.normalArray for c in tuple( n )[:3] ] )
+            except Exception:
+                pass
             # Set loop normals
             loop_normals = [mathutils.Vector(vertexData.normalArray[loop.vertex_index]) for loop in mesh.loops]
             mesh.loops.foreach_set("normal", [subitem for item in loop_normals for subitem in item])
@@ -200,8 +239,17 @@ class BlenderModelImporter(ModelImporterBase):
             # In this way, a flat list is iterated over in triplets without wasting memory by copying the whole list
             mesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
 
-            mesh.use_auto_smooth = True
+            if hasattr( mesh, 'use_auto_smooth' ):
+                mesh.use_auto_smooth = True
+
+        # The game's tangent frame, expressed in Blender's own (MikkTSpace) frame per face
+        # corner. Both frames follow the surface when the mesh deforms, so the shader can
+        # rebuild the game tangent from these coefficients in any pose (exact in the bind pose).
+        self._storeTangentFrame( mesh )
         
+        obj['mt_group'] = int( primitive.indices.getGroupId() )
+        # IASkinBridge primitives are only ever drawn by the outline pass
+        obj['mt_bridge'] = bool( shaderInfo.name.startswith( 'IASkinBridge' ) )
         # parent to group
         if primitive.indices.getGroupId() in self.editorGroupLookup:
             group = self.editorGroupLookup[primitive.indices.getGroupId()].unwrap()
@@ -252,7 +300,8 @@ class BlenderModelImporter(ModelImporterBase):
         return mathutils.Vector((x, y))
         
     def createTexture( self, filename ):
-        return bpy.data.images.load(filepath=filename)
+        # share one image per file, materials reuse the same textures a lot
+        return bpy.data.images.load(filepath=filename, check_existing=True)
 
     def createDummy( self, name, pos ):
         blendGroup = bpy.data.objects.new(name, None)
@@ -486,24 +535,6 @@ class BlenderModelImporter(ModelImporterBase):
                 f"vector ({u:+.0f}, {v:+.0f}), rate {anim['rate']}" )
         except Exception as e:
             self.logger.debug( 'could not set up uv scroll: ' + str( e ) )
-
-
-    # ------------------------------------------------------------------
-    # MT Character node group
-    # ------------------------------------------------------------------
-    #
-    # Principled is a PBR uber shader and MT is not PBR. There is no Principled input
-    # that means "look up a toon ramp with the half lambert term", and none for the rim
-    # light, the reverse ramp or the toon specular mask. Wiring MT's values into it was
-    # always an approximation onto a model that cannot express them.
-    #
-    # This builds one node group per blend file and instances it per material, so:
-    #   - the mrl values become named sockets on the group node instead of loose nodes
-    #   - improving the shading means editing one group, not reimporting every material
-    #   - each material's graph collapses to textures in, group, output
-    #
-    # Shader to RGB is Eevee only, so the group is built behind the same toggle and the
-    # Principled path stays as the Cycles fallback.
 
     MT_GROUP_NAME = 'MT Character'
 
@@ -1084,7 +1115,7 @@ class BlenderModelImporter(ModelImporterBase):
             self._applyMaterialState( bpy_material, material )
 
             light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
-            if light_map:
+            if light_map and not mt_shaded:
                 light_map_tex = nodes.new("ShaderNodeTexImage")   
                 light_map_tex.image = light_map
                 #Not sure how to properly apply the light map to the Blender scene so we'll just put the texture in the shading tab separate from the rest.
@@ -1154,19 +1185,6 @@ class BlenderModelImporter(ModelImporterBase):
 
         # bone = self.armature.bones.get(obj.getName())
         return BlenderCustomAttributeSetProxy(bone)
-
-    # ------------------------------------------------------------------
-    # Ink outline
-    # ------------------------------------------------------------------
-    #
-    # The shader package carries VS_MaterialOutline / PS_MaterialOutline / TMaterialOutline
-    # plus maskOutlineGeometry, so the game draws the contour as a geometry pass rather
-    # than only as a screen space filter. None of the mrls reference outlines, which fits:
-    # it is driven globally by the uOutlineFilter units in the stage sdl.
-    #
-    # The blender equivalent of that pass is an inverted hull. A Solidify modifier pushes
-    # a shell outwards with flipped normals, and the outline material culls backfaces so
-    # only the shell's inside shows, which reads as a line around the silhouette.
 
     OUTLINE_MATERIAL_NAME = 'MT Outline'
 

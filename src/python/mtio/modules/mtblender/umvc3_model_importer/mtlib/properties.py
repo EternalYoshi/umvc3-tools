@@ -85,19 +85,42 @@ class UMVC3ModelImportProperties(PropertyGroup):
     ) 
     import_outline: BoolProperty(
         name='Add Ink Outline (EXPERIMENTAL)',
-        description='Add the black contour line the game draws around characters. Recreated in Blender with a solidify modifier and a black material.',
+        description='DOES NOT CURRENTLY WORK',
         default=False,
     )
     outline_thickness: FloatProperty(
         name='Outline Thickness (EXPERIMENTAL)',
-        description='In model units. Characters are around 260 units tall, so the default suits them; scale it up for larger models',
+        description='DOES NOT CURRENTLY WORK',
         default=0.45,
         min=0.0,
         max=20.0,
     )
+    import_exact_shading: BoolProperty(
+        name='Game Shaders (exact)',
+        description='Recreates games shaders from the game shaders (root.spkg). Needs the game folder',
+        default=True,
+    )
+    game_native_dir: StringProperty(
+        name='Game Folder',
+        description='UMvC3 install folder (or its nativePCx64 folder).',
+        default='',
+        subtype='DIR_PATH',
+    )
+    mt_point_light: PointerProperty(
+        name='Point Light',
+        description='Point light the game shaders use as their second light (FPointLightD). Strength is the game value, falloff from the light\'s mt_falloff_start / mt_falloff_end props. Rebuild the game shaders after setting it',
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'LIGHT' and obj.data.type == 'POINT',
+    )
+    mt_key_light: PointerProperty(
+        name='Key Light',
+        description='Sun lamp the MT materials take their light direction and colour from (colour times strength)',
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'LIGHT' and obj.data.type == 'SUN',
+    )
     import_toon_shading: BoolProperty(
-        name='Use Toon Ramp (EXPERIMENTAL)',
-        description='Drive the MT Character shader with the toon ramp textures.',
+        name='MT Shading',
+        description='Rebuild each material with the game\'s own shading (toon ramps, half lambert, rim light, specular, colour correct) from the mrl. Works in Eevee and Cycles. Sets the view transform to Standard so colours match the game',
         default=False,
     )
     inherit_scale: BoolProperty(
