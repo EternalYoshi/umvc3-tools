@@ -65,8 +65,8 @@ def mt_scale_to_blender(d):
     return (float(d['Y']), float(d['X']), float(d['Z']))
 
 INHERIT_SCALE_ITEMS = [
-    ('NONE', 'None (game default)'),
-    ('ALIGNED', 'Aligned', 'Parent scale applied along the child\'s own axes'),
+    ('NONE', 'None', 'Game default, each bone uses only its own scale.'),
+    ('ALIGNED', 'Aligned', 'Parent scale applied along the child\'s own axes.'),
     ('FULL', 'Full', 'Blender default, full matrix inheritance.'),
 ]
 
@@ -1449,7 +1449,7 @@ class SUB_OP_SET_INHERIT_SCALE(bpy.types.Operator):
     mode: EnumProperty(
         name='Mode',
         items=INHERIT_SCALE_ITEMS + [
-            ('FROM_ACTION', 'From Active Action', 'Use the LMT flags stored on the active action (from a yml Flags line), None if it has none'),
+            ('FROM_ACTION', 'From Action', 'Use the LMT flags on the active action.'),
         ],
         default='NONE',
     )

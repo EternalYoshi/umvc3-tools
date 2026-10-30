@@ -127,7 +127,7 @@ class UMVC3ModelImportProperties(PropertyGroup):
         name='Inherit Scale',
         description='How child bones take their parent\'s scale in animations. None matches how characters play in game, so leave it on None if the model is going to be animated',
         items=[
-            ('NONE', 'None (game default)'),
+            ('NONE', 'None', 'Game default, each bone uses only its own scale.'),
             ('ALIGNED', 'Aligned', 'Parent scale applied along the child\'s own axes.'),
             ('FULL', 'Full', 'Blender default, full matrix inheritance.'),
         ],
