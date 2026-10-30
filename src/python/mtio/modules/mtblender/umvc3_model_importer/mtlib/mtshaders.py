@@ -1,3 +1,16 @@
+'''The game's own shaders: root.spkg and UserShaderPackage.mfx.
+
+Picks the exact vertex and pixel shader UMvC3 runs for a material, the same way the game
+does (sShader2::hashStateMaskBlock -> root.spkg lookup), and works out what every vertex
+shader output means so the pixel shader can be fed from Blender.
+
+    db = ShaderDB.get(native_dir)          # cached per folder
+    prog = db.program_for(material_overrides, ia_name, renderer)   # -> Program or None
+    prog.ps, prog.vs                        # sm3.Shader objects
+    db.vs_semantics(prog.vs_index)          # {('texcoord', n): [meaning per component]}
+
+Reverse engineering notes live in RE/ShaderPipeline/notes/spkg-shader-findings.md.
+'''
 import os
 import csv
 import struct
@@ -11,6 +24,11 @@ try:
     import numpy as np
 except ImportError:
     np = None
+
+
+# ----------------------------------------------------------------------------------------
+# MFX: technique / function / texture object ids and the shader key
+# ----------------------------------------------------------------------------------------
 
 class MFX:
     def __init__( self, path ):
@@ -78,6 +96,7 @@ class MFX:
         return out
 
     def key( self, tech, pas, states, outenc, overrides ):
+        '''overrides: {object index: u32 value}. states: up to 4 state ids (IA first).'''
         T = self.default_table()
         for i, v in overrides.items():
             T[i] = v
@@ -106,6 +125,7 @@ def _mktab():
 _CRCT = _mktab()
 
 def _mtcrc( words ):
+    # standard crc32 table, but each word fed high byte first, and no final xor
     c = 0xffffffff
     for w in words:
         for sh in ( 24, 16, 8, 0 ):
@@ -124,6 +144,11 @@ def _fnv( words ):
 # texture format byte -> texture type in the key (MtTexture::resolveFormatAndUsage)
 TEX_TYPE = { 0x0F: 0xA, 0x19: 5, 0x1E: 1, 0x1F: 3, 0x20: 8, 0x23: 8, 0x21: 9, 0x24: 9, 0x25: 0xF,
              0x29: 0x14, 0x2A: 0x15, 0x2B: 0x16, 0x2F: 0x18 }
+
+
+# ----------------------------------------------------------------------------------------
+# SPK: programs and shader bytecode
+# ----------------------------------------------------------------------------------------
 
 class SPK:
     def __init__( self, path ):
@@ -174,6 +199,11 @@ class SPK:
     def ps( self, i ):
         return self._shader( self.ps_tab, i )
 
+
+# ----------------------------------------------------------------------------------------
+# cbuffer layouts (member names for CTAB rows)
+# ----------------------------------------------------------------------------------------
+
 _LAYOUT = None
 
 def cbuffer_layouts():
@@ -189,6 +219,8 @@ def cbuffer_layouts():
     return _LAYOUT
 
 def ctab_location( name ):
+    '''CTAB constant name -> (cbuffer, float offset of its first register).
+    Packed rows are "<CB>__packed<row>", the rest are members found by name.'''
     lay = cbuffer_layouts()
     if '__packed' in name:
         cb, row = name.split( '__packed' )
@@ -201,6 +233,10 @@ def ctab_location( name ):
                 return cb, off
     return None, None
 
+
+# ----------------------------------------------------------------------------------------
+# vertex shader output meanings
+# ----------------------------------------------------------------------------------------
 
 def _decls( sh ):
     ins, outs = {}, {}
@@ -220,6 +256,9 @@ def ps_inputs( sh ):
     return out
 
 def classify_vs( sh, seed=1 ):
+    '''Run the VS with identity skinning on random vertices and name each output component:
+    pos.x, normal.y, occlusion, tangent.z, binormal.x / -binormal.x, view.x, eyevec.x,
+    eyedist, "const <v>", or "lin <coef>*<input>.<c> ..." for affine functions of raw inputs.'''
     N = 96
     b = sm3ir.build( sh )
     ins, outs = _decls( sh )
@@ -315,6 +354,11 @@ def classify_vs( sh, seed=1 ):
         res[( usage, ui )] = comps
     return res
 
+
+# ----------------------------------------------------------------------------------------
+# the database
+# ----------------------------------------------------------------------------------------
+
 class Program:
     def __init__( self, db, key, record, vs_index, ps_index ):
         self.db = db
@@ -345,6 +389,7 @@ class ShaderDB:
 
     @classmethod
     def find_native( cls, *hints ):
+        '''Finds the nativePCx64 folder from a path inside it (or its game folder).'''
         cands = []
         for h in hints:
             if not h:
@@ -377,6 +422,7 @@ class ShaderDB:
         self._sem = {}
 
     def overrides_by_name( self, named ):
+        '''{slot name: impl name or ("tex", type) or raw int} -> {object index: value}'''
         out = {}
         for slot, v in named.items():
             if slot not in self.mfx.idx:

@@ -1,3 +1,17 @@
+"""sm3ir graph -> Blender shader nodes.
+
+Every scalar op becomes a Math node (or a Mix for the selects), every texture fetch becomes
+whatever the caller's bind object builds for it. The result is the game's own shader,
+instruction for instruction, running per pixel in Eevee or Cycles.
+
+    out, kill = emit(tree, ir_builder, bind)
+        bind.const(reg, comp)        -> socket or float
+        bind.input(reg, comp)        -> socket            (pixel shader v registers)
+        bind.vface()                 -> socket            (+1 / -1)
+        bind.vpos(comp)              -> socket
+        bind.texture(sampler, kind, coord_sockets) -> (color socket, alpha socket)
+    out: {'oC0': [socket x4]}, kill: socket or None (> 0 means discarded)
+"""
 import bpy
 
 _OP = {
@@ -20,8 +34,11 @@ class Emitter:
         self.x0, self.y0 = x0, y0
         self.tex = {}           # ir tex id -> (color, alpha, separate)
         self.created = 0
+        # texture fetches sampled outside this tree: their coordinates aren't built here,
+        # bind.external_texture(id, sampler) hands back the colour / alpha sockets
         self.external = set()
 
+    # ---------------------------------------------------------------- helpers
     def _place(self, node, depth):
         r = self.rows.get(depth, 0)
         self.rows[depth] = r + 1
@@ -54,6 +71,7 @@ class Emitter:
         self._place(n, depth)
         return n.outputs[0]
 
+    # ---------------------------------------------------------------- main
     def needed(self, roots=None):
         want = set()
         if roots is None:
@@ -80,6 +98,7 @@ class Emitter:
         return 1 + max([self.depth.get(i, 0) for i in ids] or [0])
 
     def emit_roots(self, roots):
+        '''emit only what the given IR nodes need; returns their sockets / floats'''
         self._emit_ids(self.needed(roots))
         return [self.sock[r] for r in roots]
 
@@ -165,6 +184,8 @@ class Emitter:
 
 
 def independent_textures(b):
+    '''IR texture fetches whose coordinates don't depend on another fetch (plain uv maps and
+    uv transforms, as opposed to toon ramp or env lookups): {tex id: sampler}'''
     g = b.g
     # ids are created children first, so one forward pass settles every node
     dep = [False] * len(g.nodes)

@@ -1,3 +1,14 @@
+'''The game's post processing (bloom) for exact game shader renders.
+
+The fight view draws characters and stage into an 8 bit target that holds the colour times
+fHDRCompressEncode (0.5). Post then downsamples it, keeps what is brighter than the stage's
+bloom threshold, blurs that at four sizes and adds it back on top of the decoded scene.
+
+A recipe is a list of the full screen passes captured from the game (umvc3_framecapture):
+their compiled shaders (looked up in root.spkg by number), constants, inputs and blend
+state. They run here through the same SM3 compiler the materials use, on numpy arrays, so
+the result matches the game to 1/255 (checked against the Training Room capture).
+'''
 import os, json, math
 import numpy as np
 
@@ -14,6 +25,10 @@ def load_recipe( path=None ):
             _recipes[path] = json.load( f )
     return _recipes[path]
 
+
+# ----------------------------------------------------------------------------------------
+# texture sampling the way the d3d9 hardware did it
+# ----------------------------------------------------------------------------------------
 
 def _sampler( img, filt, address ):
     H, W = img.shape[:2]
@@ -74,7 +89,13 @@ def _blend( src, dst, sb, db ):
         out[..., sl] = s * fs + d * fd
     return out
 
+
+# ----------------------------------------------------------------------------------------
+# constants that depend on target sizes
+# ----------------------------------------------------------------------------------------
+
 def _pass_consts( p, kind, sizes, target_size ):
+    '''{register: vec4} for this pass at the current resolution'''
     Wt, Ht = target_size
     out = {}
     cap_t = p['size']
@@ -113,6 +134,8 @@ def _ir( db, kind, number, ints ):
 
 
 def run( db, scene_img, recipe=None, log=None ):
+    '''scene_img: (H, W, 4) float array, top row first, holding what the game's scene colour
+    target would hold (shader output, 8 bit). Returns the post processed (H, W, 4) image.'''
     recipe = recipe or load_recipe()
     H, W = scene_img.shape[:2]
     images = { 'scene': np.round( np.clip( scene_img, 0, 1 ) * 255 ) / 255 }
@@ -126,6 +149,9 @@ def run( db, scene_img, recipe=None, log=None ):
         ps, bp = _ir( db, 'ps', p['ps'], p['ps_ints'] )
         vsc = _pass_consts( p, 'vs', sizes, ( Wt, Ht ) )
         psc = _pass_consts( p, 'ps', sizes, ( Wt, Ht ) )
+        # the quad's interpolated attributes: pixel centres sit on integer window coords and
+        # the VS moves the quad by half a pixel. The hardware lands a hair under the exact
+        # value, which matters on point sampled 2x downsamples.
         jj, ii = np.mgrid[0:Ht, 0:Wt]
         u = ( ii.astype( f32 ) + f32( 0.5 ) ) / f32( Wt )
         v = ( jj.astype( f32 ) + f32( 0.5 ) ) / f32( Ht )
@@ -162,11 +188,19 @@ def run( db, scene_img, recipe=None, log=None ):
             log( 'post pass %d ps %d -> %s %dx%d' % ( p['draw'], p['ps'], p['target'], Wt, Ht ) )
     return images[recipe['output']]
 
+
+# ----------------------------------------------------------------------------------------
+# blender side
+# ----------------------------------------------------------------------------------------
+
 def srgb_encode( x ):
     x = np.maximum( x, 0 )
     return np.where( x <= 0.0031308, x * 12.92, 1.055 * np.power( x, 1 / 2.4 ) - 0.055 )
 
 def render_with_post( context, recipe_path=None, image_name='MT Game Render', log=None ):
+    '''Renders the scene, turns the exact game shader output back into what the game's
+    scene target would hold, runs the post recipe and stores the result as an image.
+    Returns the image.'''
     import bpy, tempfile
     from . import mt_exact
     scene = context.scene

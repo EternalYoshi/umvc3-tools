@@ -1,4 +1,20 @@
-'''MTFramework Pixel Shader
+'''Exact MT materials: the game's own pixel shader, compiled to Blender nodes.
+
+For each material (and vertex layout) this picks the program UMvC3 itself would run, the
+same way the game does (MRL flags and textures plus the renderer's own overrides, hashed
+into the root.spkg key), and turns that pixel shader into Math nodes instruction by
+instruction (mtlib.sm3ir). The vertex shader is not run; instead each of its outputs is
+identified numerically (mtshaders.classify_vs) and fed from the matching Blender value
+(world normal, position, tangent frame, view vector, uv), converted to the game's axes.
+
+Constants come from three places:
+  - the MRL cbuffers ($Globals, CBMaterial, CBHalfLambert, ...)          -> literal values
+  - everything the renderer sets (lights, rim, ambient, cut-in, HDR ...) -> scene custom
+    properties "mtc_<ctab name>_<row>", 4 floats each, read with View Layer attribute nodes.
+    Defaults below, real values from a FrameCapture of the game, lights from Blender.
+
+The output is oC0 as the game writes it (gamma space), turned into linear with the exact
+sRGB curve so Standard view shows the game's numbers.
 '''
 import os
 import json
@@ -8,6 +24,11 @@ import mathutils
 
 from ..mtlib import mtshaders, sm3ir
 
+# ----------------------------------------------------------------------------------------
+# renderer side values (Training Room; replaced by capture data when available)
+# ----------------------------------------------------------------------------------------
+
+# what the renderer set for Ryu in the Training Room (umvc3_framecapture, 2026-10-17)
 RENDERER_DEFAULTS = {
     # key light: [0].w = ?, [1] = direction to the light (MT axes), [2] = colour
     'sLightParam0': [ ( 0.0, 0.0, 0.0, 0.9 ), ( 0.032362, 0.447458, 0.893719, 0.0 ), ( 1.15, 1.15, 1.15, 1.0 ), ( 0.0, 0.0, 0.0, 0.0 ) ],
@@ -49,6 +70,11 @@ def ensure_renderer_props( scene, values=None, overwrite=False ):
             if overwrite or key not in scene.keys():
                 scene[key] = [ float( x ) for x in tuple( v )[:4] ] + [ 0.0 ] * ( 4 - len( tuple( v )[:4] ) )
 
+
+# ----------------------------------------------------------------------------------------
+# picking the program
+# ----------------------------------------------------------------------------------------
+
 SKINNING = {
     'IASkinTB1wt': ( 'FSkinning1Weight', 'FSkinningPF1Weight' ),
     'IASkinTBC1wt': ( 'FSkinning1Weight', 'FSkinningPF1Weight' ),
@@ -66,6 +92,7 @@ def technique_for( material ):
     return 'T' + t if t else 'TMaterialChar'
 
 def material_overrides( material, images ):
+    '''MRL flags and textures -> {slot: impl name or ("tex", type)}'''
     named = {}
     for cmd in material.cmds:
         if cmd.type == 'flag' and cmd.data:
@@ -79,6 +106,9 @@ def material_overrides( material, images ):
     return named
 
 def receives_shadows( prim_flags ):
+    '''Primitives with flag bits 0x0104 set get a TShadowReceive pass (the screen space
+    light mask) and are drawn with FLightMaskEnable + FShadowReceiveFaceAttnIncrease;
+    the rest (Ryu's eyes, flags 0xfefb) without. Seen in the Training Room capture.'''
     try:
         f = int( str( prim_flags ), 0 )
     except Exception:
@@ -86,6 +116,8 @@ def receives_shadows( prim_flags ):
     return ( f & 0x0104 ) == 0x0104
 
 def wanted_renderer_state( scene, receive=True ):
+    '''What the renderer would set: a point light in slot 1 when the MT point light is
+    set, and the light mask / face attenuation pair for shadow receiving primitives.'''
     mip = getattr( scene, 'sub_scene_properties', None )
     point = getattr( mip, 'mt_point_light', None ) if mip is not None else None
     return {
@@ -101,6 +133,8 @@ def template_order( temps, scene, receive=True ):
     return sorted( range( len( temps ) ), key=lambda i: -score( temps[i] ) )
 
 def pick_program( db, material, ia, images, scene, outenc=1, tech=None, receive=True ):
+    '''Returns (Program, template index) or (None, None). Tries the renderer templates the
+    game was seen using, best match for the scene first.'''
     templates = renderer_templates() or {}
     tech = tech or technique_for( material )
     temps = templates.get( '%s_%d' % ( tech, outenc ) ) or templates.get( 'TMaterialChar_%d' % outenc ) or [ {} ]
@@ -108,7 +142,7 @@ def pick_program( db, material, ia, images, scene, outenc=1, tech=None, receive=
     named_mat = material_overrides( material, images ) if material is not None else {}
     if tech == 'TMaterialCharAlpha':
         # the renderer turns alpha test on for every alpha character material (35 of 35
-        # TMaterialCharAlpha keys in the shader log)
+        # TMaterialCharAlpha keys in the shader log), the MRL never says so
         named_mat.setdefault( 'FAlphaTest', 'FAlphaTestGreater' )
     for ti in order:
         if ti >= len( temps ):
@@ -122,10 +156,17 @@ def pick_program( db, material, ia, images, scene, outenc=1, tech=None, receive=
             return prog, ti
     return None, None
 
+
+# ----------------------------------------------------------------------------------------
+# node building
+# ----------------------------------------------------------------------------------------
+
 def _is_sock( x ):
     return isinstance( x, bpy.types.NodeSocket )
 
 class Bind:
+    '''Feeds the compiled pixel shader from Blender. Everything is converted to the game's
+    axes: MT (x, y, z) = Blender (x, z, -y), positions divided by the import scale.'''
 
     def __init__( self, tree, material, images, prog, db, scene, x0=-5000 ):
         self.tree = tree
@@ -183,6 +224,7 @@ class Bind:
         return nd.outputs['Value' if op in ( 'DOT_PRODUCT', 'LENGTH', 'DISTANCE' ) else 'Vector']
 
     def mt_axes( self, vec, scale=False ):
+        '''Blender vector -> MT components (x, y, z)'''
         x, y, z = self.sep( vec )
         out = [ x, z, self.m( 'MULTIPLY', y, -1.0 ) ]
         if scale:
@@ -239,6 +281,7 @@ class Bind:
         return self.cache['geo']
 
     def frame_vec( self, which ):
+        '''tangent / bitangent of the UV map (MikkTSpace), read back through Normal Map nodes'''
         key = ( 'frame', which )
         if key not in self.cache:
             nm = self.node( 'ShaderNodeNormalMap' )
@@ -253,6 +296,10 @@ class Bind:
         return self.cache[key]
 
     def game_frame( self ):
+        '''(tangent, binormal) in MT axes, as the game's vertex shader makes them: its own
+        stored tangent, binormal = normalize(cross(N, T) * sign). Rebuilt from the per corner
+        coefficients the importer stored against Blender's tangent frame; meshes without
+        them fall back to Blender's frame.'''
         if 'gframe' in self.cache:
             return self.cache['gframe']
         geo = self.geometry()
@@ -349,6 +396,8 @@ class Bind:
     RAW_SKIP = ( 'position', 'normal', 'tangent', 'blendweight', 'blendindices' )
 
     def raw_input( self, name ):
+        '''raw vertex element component, e.g. "binormal0.x": the uv lives in whatever element
+        the layout put it, which is the only one that isn't position / normal / tangent'''
         usage = name.rstrip( '0123456789.xyzw' )
         comp = name[-1]
         if usage in self.RAW_SKIP:
@@ -473,6 +522,9 @@ class Bind:
 
 
 class VSBind:
+    """Feeds a vertex shader expression from Blender (for the outputs that aren't plain
+    geometry: uv transforms, pass through constants). Skinning is identity, Blender already
+    posed the mesh."""
     SKIN = { 'CBSkinning__packed0': ( 0.0, 0.5, 0.5, 0.0 ), '__tMatrixMap__invsize': ( 0.25, 0.25, 0.0, 0.0 ) }
 
     def __init__( self, ps_bind, vs, ins ):
@@ -533,6 +585,8 @@ class VSBind:
 
 
 class StoredMaterial:
+    """The bits of an MRL material exact mode needs, kept on the Blender material as JSON so
+    the shaders can be rebuilt later (after adding a point light, say) without the mrl."""
     def __init__( self, d ):
         self.name = d.get( 'name', '' )
         self.type = d.get( 'type', '' )
@@ -576,6 +630,12 @@ def _srgb_decode( b, sock ):
     b.feed( mix.inputs[0], t ); b.feed( mix.inputs[2], lo ); b.feed( mix.inputs[3], hi )
     return mix.outputs[0]
 
+
+# ----------------------------------------------------------------------------------------
+# legible materials: the compiled shader lives in a node group per game program, the
+# material shows the MRL's textures as image nodes and its constants as named sockets
+# ----------------------------------------------------------------------------------------
+
 SHADER_GROUP_VERSION = 2
 MATERIAL_CBUFFERS_EDITABLE = ( '$Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
 
@@ -602,6 +662,8 @@ def _is_colour( name ):
     return 'Color' in name or 'Colour' in name
 
 def member_sockets( name, size ):
+    '''how a cbuffer member shows on the group: [(socket name, socket type, [float indices])]
+    colours as Color sockets, other vectors as Vector, a trailing w as its own Float'''
     out = []
     rows = [ list( range( r, min( r + 4, size ) ) ) for r in range( 0, size, 4 ) ]
     for ri, idx in enumerate( rows ):
@@ -618,6 +680,8 @@ def member_sockets( name, size ):
 
 
 class GroupBind( Bind ):
+    '''Bind for a shader built inside a node group. MRL constants become group inputs named
+    after the cbuffer members, textures sampled outside the group come in as Color / Alpha.'''
 
     def __init__( self, tree, material, images, prog, db, scene, x0=-5000 ):
         super().__init__( tree, material, images, prog, db, scene, x0 )
@@ -704,6 +768,8 @@ def _texture_slot_name( bind, sampler ):
     return state, slot
 
 def _editable_fetches( b, bind, material, images ):
+    '''IR fetches to sample on the material level: MRL texture slots with an image, whose
+    coordinates don't depend on another fetch. {tex id: (input name, slot, sampler state)}'''
     from ..mtlib import sm3nodes
     slots = { c.name for c in material.cmds if c.type == 'texture' }
     out = {}
@@ -720,6 +786,7 @@ def _editable_fetches( b, bind, material, images ):
     return out
 
 def _internal_images( b, probe, images, fetches ):
+    '''images the group samples itself (toon ramps, env maps): [(slot, image)]'''
     out = {}
     for i, node in enumerate( b.g.nodes ):
         if node[0] == 'tex' and i not in fetches:
@@ -769,7 +836,7 @@ def _shader_group( prog, db, scene, material, images, fetches, receive, internal
     _gn_socket( g, 'Color', 'NodeSocketColor', 'OUTPUT' )
     _gn_socket( g, 'Alpha', 'NodeSocketFloat', 'OUTPUT' )
     # HDR compress: the scene target holds colour * fHDRCompressEncode, post multiplies by
-    # fHDRCompressDecode.
+    # fHDRCompressDecode. Undo it here so the material shows the decoded colour.
     hdr = bind.scene_vec4( scene_prop_name( 'CBHDRFactor__packed0', 0 ) )
     raw = bool( scene.get( 'mt_debug_raw', 0 ) )
     rgb = []
@@ -787,6 +854,8 @@ def _shader_group( prog, db, scene, material, images, fetches, receive, internal
     g.links.new( comb.outputs[0], emit.inputs['Color'] )
     alpha = oc[3] if material.isAlphaBlended() else 1.0
     if kill is not None:
+        # texkill only drops pixels with a component below 0; the shader's cmp writes -0 for
+        # kept pixels, so a kill value of exactly 0 has to survive
         keep = bind.m( 'SUBTRACT', 1.0, bind.m( 'GREATER_THAN', kill, 0.0 ) ) if _is_sock( kill ) else ( 0.0 if kill > 0 else 1.0 )
         alpha = bind.m( 'MULTIPLY', keep, alpha ) if ( _is_sock( keep ) or _is_sock( alpha ) ) else keep * alpha
     a = bind.m( 'MINIMUM', bind.m( 'MAXIMUM', alpha, 0.0 ), 1.0 ) if _is_sock( alpha ) else float( alpha )
@@ -856,6 +925,10 @@ def _member_values( material, cb, off, size ):
 
 
 def build_exact_material( bpy_material, material, ia, images, context, logger=None, receive=True ):
+    '''Lays the material out as: the MRL's textures (image nodes) -> MT Shader group (the
+    compiled game shader, shared by every material on that program, with the MRL constants as
+    named inputs) -> Material Output. Returns the Program or None when the game files aren't
+    found or the game has no shader for this combination.'''
     scene = context.scene
     native = scene.get( 'mt_game_native_dir', '' )
     if not native or not os.path.isdir( native ):
@@ -866,7 +939,8 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
         if logger: logger.warn( f'could not read the game shaders from {native}: {e}' )
         return None
     images = images or {}
-        # icl im not sure if this works as intended
+    # output encode 1 is the fight view; 0 is what the game uses for the super cut-in
+    # close up, drawn on top of the finished frame
     prog, ti = pick_program( db, material, ia, images, scene, outenc=int( scene.get( 'mt_outenc', 1 ) ), receive=receive )
     if prog is None:
         if logger: logger.warn( f'no game shader for {material.name} ({ia})' )
@@ -947,6 +1021,8 @@ def build_exact_material( bpy_material, material, ia, images, context, logger=No
 
 
 def read_material_edits( bpy_material ):
+    '''What the user changed on the material level: {'cbuffers': {cb: [floats]}, 'textures':
+    {slot: image}}, starting from the stored MRL values.'''
     stored = json.loads( bpy_material.get( 'mt_mrl', '{}' ) or '{}' )
     cbs = { k: list( v ) for k, v in stored.get( 'cbuffers', {} ).items() }
     tex = {}
@@ -976,6 +1052,7 @@ def read_material_edits( bpy_material ):
     return dict( cbuffers=cbs, textures=tex )
 
 def store_material_edits( bpy_material ):
+    '''Folds the edits back into the stored MRL copy (before a rebuild or an export).'''
     from . import mt_mrl_props
     if mt_mrl_props.has_entry( bpy_material ):
         mt_mrl_props.sync( bpy_material )
@@ -1000,10 +1077,16 @@ def store_material_edits( bpy_material ):
 def _uses_hdr( prog ):
     return any( c['name'].startswith( 'CBHDRFactor' ) for c in ( prog.ps.ctab['consts'] if prog.ps.ctab else [] ) )
 
+
+# ----------------------------------------------------------------------------------------
+# lights -> renderer constants
+# ----------------------------------------------------------------------------------------
+
 def blender_to_mt( v ):
     return ( v[0], v[2], -v[1] )
 
 def _drive( scene, prop, index, expr, variables ):
+    '''variables: [(name, id_type, id, data_path)]'''
     try:
         fc = scene.driver_add( '["%s"]' % prop, index )
     except Exception:
@@ -1022,6 +1105,9 @@ def _drive( scene, prop, index, expr, variables ):
     drv.expression = expr
 
 def link_scene_drivers( scene ):
+    '''Keeps the renderer constants in step with the Blender side: the key sun drives
+    sLightParam0 (direction in MT axes, colour x strength), and the MT Lighting panel
+    values drive the rim (CBToon / fRimLightColorFactor) and ambient (CBAmbient).'''
     ensure_renderer_props( scene )
     base = 'sub_scene_properties.mt_key_light'
     # MT (x, y, z) = blender (x, z, -y); matrix_world[2] is the sun's +Z axis (towards the light)
@@ -1043,6 +1129,7 @@ def link_scene_drivers( scene ):
 
 
 def rebuild_all( context, logger=None ):
+    """Recompiles every exact material for the scene as it is now (lights, light mask)."""
     from . import mt_mrl_props
     done = 0
     for mat in bpy.data.materials:
@@ -1066,6 +1153,8 @@ def rebuild_all( context, logger=None ):
 
 
 def rebuild_from_entry( mat, context, logger=None ):
+    '''Recompiles one material from its MRL entry. False when the game has no shader for it
+    (the material keeps the shader it had).'''
     from . import mt_mrl_props
     info = mt_mrl_props.info_from_entry( mat )
     images = mt_mrl_props.entry_images( mat )
@@ -1073,6 +1162,9 @@ def rebuild_from_entry( mat, context, logger=None ):
 
 
 def link_point_light( scene ):
+    """sLightParam1 (FPointLightD): [0].xyz position (MT units), [2] colour x strength,
+    [3].x distance where the falloff starts, [3].y 1 / falloff length. The light's
+    "mt_falloff_start" / "mt_falloff_end" custom props set the distances (blender units)."""
     mip = getattr( scene, 'sub_scene_properties', None )
     if mip is None or not hasattr( mip, 'mt_point_light' ):
         return
@@ -1096,13 +1188,19 @@ def link_point_light( scene ):
             [ ( 'a', 'SCENE', scene, '%s["mt_falloff_start"]' % base ), ( 'b', 'SCENE', scene, '%s["mt_falloff_end"]' % base ) ] + us )
 
 
+# ----------------------------------------------------------------------------------------
+# outline: TMaterialOutline, an inverted hull the game draws for every character mesh
+# (and the IASkinBridge meshes, which exist only for it). Its VS pushes each vertex out
+# along the normal by clip w * CBOutlineFilter[9].w, so the width stays the same on screen.
+# ----------------------------------------------------------------------------------------
+
 RENDERER_DEFAULTS.update( {
     'fOutlineChannelMask': [ ( 1.0, 0.0, 0.0, 0.0 ) ],
     'fOutlineColor0': [ ( 1.0, 1.0, 1.0, 1.0 ) ],
+    # .w is the outline width (times clip w), as captured in the Training Room
     'CBOutlineFilter__packed9': [ ( 0.0, 0.0001, 0.0, 0.00092 ) ],
 } )
 
-# lowkey this doesnt work :sob:
 OUTLINE_GROUP = 'MT Outline Hull'
 
 def _gn_socket( group, name, stype, in_out ):
@@ -1113,7 +1211,6 @@ def _gn_socket( group, name, stype, in_out ):
 
 OUTLINE_GROUP_VERSION = 5
 
-# I DO NOT KNOW IF ANY OF THIS WORKS :DDDDDDD
 def outline_group():
     g = bpy.data.node_groups.get( OUTLINE_GROUP )
     if g is not None and g.get( 'mt_version' ) == OUTLINE_GROUP_VERSION:
@@ -1128,7 +1225,12 @@ def outline_group():
     s = _gn_socket( g, 'Width', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.00092
     s = _gn_socket( g, 'Ortho Depth', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
     s = _gn_socket( g, 'Keep Mesh', 'NodeSocketBool', 'INPUT' ); s.default_value = True
+    # 1: weld normals across seams instead of the game's per vertex normals (not the game look)
     s = _gn_socket( g, 'Weld Normals', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
+    # The game draws the hull with a stencil test against the character it outlines, so the
+    # line never shows over the character's own body, only around it. Blender has no
+    # stencil; pushing the hull back along the view rays (same screen position) hides it
+    # behind the body the same way. Too far and it also hides behind a floor close behind.
     s = _gn_socket( g, 'Push Back', 'NodeSocketFloat', 'INPUT' ); s.default_value = 60.0
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'OUTPUT' )
     N, L = g.nodes, g.links
@@ -1138,6 +1240,7 @@ def outline_group():
         n = N.new( kind ); n.location = ( x, y )
         for k, v in kw.items(): setattr( n, k, v )
         return n
+    # smooth normals across uv seams: weld a copy and read its normals back by position
     merge = node( 'GeometryNodeMergeByDistance', -900, -300 )
     merge.inputs['Distance'].default_value = 1e-4
     L.new( gi.outputs['Geometry'], merge.inputs['Geometry'] )
@@ -1230,6 +1333,7 @@ def outline_group():
 
 
 def outline_material( db, ia, context, logger=None ):
+    '''Compiled TMaterialOutline pixel shader for a vertex layout (pass 1, the colour pass).'''
     name = 'MT Outline@%s' % ia
     mat = bpy.data.materials.get( name )
     if mat is not None and mat.get( 'mt_ps' ) is not None:
@@ -1305,6 +1409,8 @@ def add_outline( obj, ia, context, logger=None, outline_only=False ):
         return False
     mod = obj.modifiers.get( 'MT Outline' ) or obj.modifiers.new( 'MT Outline', 'NODES' )
     mod.node_group = outline_group()
+    # build the hull in the rest pose and let the armature deform it with the mesh, the way
+    # the game skins the position and normal before pushing out
     try:
         while obj.modifiers.find( mod.name ) > 0:
             idx = obj.modifiers.find( mod.name )
@@ -1317,6 +1423,7 @@ def add_outline( obj, ia, context, logger=None, outline_only=False ):
     return True
 
 def set_outline_inputs( obj, mod, mat, scene, outline_only ):
+    # older files carry an older hull group; swap in the current one first
     try:
         if mod.node_group is None or mod.node_group.get( 'mt_version' ) != OUTLINE_GROUP_VERSION:
             mod.node_group = outline_group()
@@ -1334,11 +1441,14 @@ def set_outline_inputs( obj, mod, mat, scene, outline_only ):
             elif nm == 'Camera' and cam is not None: mod[ident] = cam
             elif nm == 'Width': mod[ident] = float( width )
             elif nm == 'Ortho Depth':
+                # no camera yet: a typical fight camera distance; orthographic: its view size
                 mod[ident] = 400.0 if cam is None else ( float( cam.data.ortho_scale ) if cam.data.type == 'ORTHO' else 0.0 )
             elif nm == 'Keep Mesh': mod[ident] = not outline_only
             elif nm == 'Push Back': mod[ident] = _push_value( scene )
         except Exception:
             pass
+    # setting socket values through id properties doesn't rebuild the depsgraph relations,
+    # so the hull wouldn't follow the camera when it moves; re-assigning the node group does
     try:
         mod.node_group = mod.node_group
     except Exception:
@@ -1355,12 +1465,22 @@ def refresh_outlines( context ):
         set_outline_inputs( obj, mod, mat, context.scene, obj.get( 'mt_outline_only', False ) )
 
 
+
+# ----------------------------------------------------------------------------------------
+# renderer constants from a FrameCapture (umvc3_framecapture.asi + decode_capture.py)
+# ----------------------------------------------------------------------------------------
+
 MATERIAL_CBUFFERS = ( '$Globals', 'Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
 
 def load_capture_constants( scene, draws_json, draw_indices, native_dir ):
+    """Copies every renderer side pixel shader constant (lights, rim, ambient, HDR, cut-in,
+    light mask selector ...) the game set on the given draws into the scene props, so the
+    compiled shaders get the exact in-game values. Material cbuffers stay from the MRL."""
     db = mtshaders.ShaderDB.get( native_dir )
     draws = json.load( open( draws_json ) ) if isinstance( draws_json, str ) else draws_json
     loc = { g: i for i, g in enumerate( db.spk.ps_global ) }
+    # a few values differ between passes (the alpha pass picks another light mask channel),
+    # so each row takes the value most of the draws used
     import collections
     votes = collections.defaultdict( collections.Counter )
     for di in draw_indices:
@@ -1383,6 +1503,8 @@ def load_capture_constants( scene, draws_json, draw_indices, native_dir ):
     return len( votes )
 
 def sync_lighting_from_constants( scene ):
+    '''The key sun, rim and ambient panel values drive some of the constants; push the
+    loaded values back into them so the drivers keep what was loaded.'''
     from . import mt_shading
     g = lambda name, row=0: scene.get( scene_prop_name( name, row ) )
     lp1, lp2 = g( 'sLightParam0', 1 ), g( 'sLightParam0', 2 )
@@ -1401,10 +1523,18 @@ def sync_lighting_from_constants( scene ):
         scene['mt_ambient'] = tuple( amb[:3] )
 
 
+# ----------------------------------------------------------------------------------------
+# primitive groups
+# ----------------------------------------------------------------------------------------
+# Character models carry every face expression as its own copy of the head, one primitive
+# group each (70, 71, 73, 75 on Ryu and Wesker). The game draws one of them; 70 is the
+# default face. Group 127 holds a placeholder the game never draws.
 FACE_GROUPS = range( 70, 80 )
 UNUSED_GROUPS = ( 127, )
 
 def apply_face_group( scene, objects=None ):
+    """Shows the face expression group picked in scene['mt_face_group'] (default 70) and hides
+    the other expressions and unused groups, with their outlines. Returns how many it hid."""
     if 'mt_face_group' not in scene.keys():
         scene['mt_face_group'] = 70
     face = int( scene['mt_face_group'] )
@@ -1422,12 +1552,25 @@ def apply_face_group( scene, objects=None ):
         # outline-only geometry: the game never draws it in the colour pass
         if o.get( 'mt_bridge' ) and not o.modifiers.get( 'MT Outline' ):
             hide = True
-        o.hide_viewport = hide
+        # the eye toggle, not the monitor one: the exporter leaves hide_viewport objects
+        # out of the .mod, and every face expression belongs in it
+        if o.get( 'mt_face_hidden' ) and o.hide_viewport:
+            o.hide_viewport = False
+        try:
+            o.hide_set( hide )
+        except RuntimeError:
+            pass        # not in the active view layer
         o.hide_render = hide
+        if hide:
+            o['mt_face_hidden'] = True
+        elif 'mt_face_hidden' in o.keys():
+            del o['mt_face_hidden']
         hidden += hide
     return hidden
 
 
+# the outline width follows the camera's depth (clip w), so the hulls have to know which
+# camera that is; repoint them whenever the scene camera changes
 _last_camera = {}
 
 @bpy.app.handlers.persistent
@@ -1441,6 +1584,9 @@ def _camera_watch( scene, depsgraph=None ):
     except Exception:
         pass
 
+# The push back only lines up seen through the scene camera; from any other viewport angle
+# the pushed hull shows as a black copy of the character behind it. So it only applies
+# while a render runs, the viewport draws the hull in place.
 _rendering = { 'on': False }
 
 def _push_value( scene ):
@@ -1488,6 +1634,9 @@ def unregister_handlers():
 
 
 def ensure_game_camera( scene, unit_scale=1.0 ):
+    """The outline width is the camera depth times CBOutlineFilter[9].w, so the hulls need a
+    camera. With none in the scene, add one where the Training Room fight camera sits
+    (MT eye (0, 70, 525), looking up 7 degrees, 32 degree vertical fov). Returns it."""
     if scene.camera is not None:
         return scene.camera
     import math, mathutils
@@ -1506,6 +1655,10 @@ def ensure_game_camera( scene, unit_scale=1.0 ):
 
 
 def split_outlines( objects ):
+    """A geometry nodes modifier drops the mesh's custom normals, and the toon shading lives
+    on those (Ryu's and Wesker's faces are shaded by edited normals). So the hull goes on a
+    linked duplicate that shares the mesh, runs the hull before its own armature modifier and
+    keeps only the hull; the original keeps its normals. Outline-only meshes keep theirs."""
     made = []
     for obj in objects:
         mod = obj.modifiers.get( 'MT Outline' )
@@ -1524,6 +1677,10 @@ def split_outlines( objects ):
         dup['mt_outline_only'] = True
         dup['mt_outline_of'] = obj.name
         dup.hide_viewport = obj.hide_viewport
+        try:
+            dup.hide_set( obj.hide_get() )
+        except RuntimeError:
+            pass
         dup.hide_render = obj.hide_render
         # vertex group names live on the shared mesh, the armature finds them as is
         nm = dup.modifiers.new( 'MT Outline', 'NODES' )

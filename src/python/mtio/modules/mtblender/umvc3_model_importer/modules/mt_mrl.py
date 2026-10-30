@@ -1,3 +1,9 @@
+'''Writes an .mrl (and its .mrl.yml) from the game shader materials.
+
+Every Blender material carries its full MRL entry (Material.mt_entry, see mt_mrl_props),
+so the export is the imported .mrl with each entry swapped for the edited one. Materials no
+mesh uses go back out unchanged, in their original order. The texture list is rebuilt from
+what the materials reference, keeping the types of the entries that were there.'''
 import os
 import collections
 
@@ -19,6 +25,7 @@ def game_materials( src=None ):
     return out
 
 def build_library( src, logger=None ):
+    '''The source .mrl with the Blender entries applied. Returns (imMaterialLib, notes).'''
     for ms in game_materials( src ).values():
         for m in ms:
             if not mt_mrl_props.has_entry( m ):

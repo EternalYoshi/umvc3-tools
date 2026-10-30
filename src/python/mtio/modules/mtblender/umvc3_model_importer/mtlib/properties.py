@@ -97,7 +97,7 @@ class UMVC3ModelImportProperties(PropertyGroup):
     )
     import_exact_shading: BoolProperty(
         name='Game Shaders (exact)',
-        description='Recreates games shaders from the game shaders (root.spkg). Needs the game folder',
+        description='Recreates the game\'s own shaders from root.spkg. Needs the game folder',
         default=True,
     )
     game_native_dir: StringProperty(

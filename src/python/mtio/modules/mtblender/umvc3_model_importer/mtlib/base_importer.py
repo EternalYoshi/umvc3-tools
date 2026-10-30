@@ -27,8 +27,6 @@ class DecodedVertexData:
     weightArray: EditorArrayProxy
     jointArray: EditorArrayProxy
     colorArray: EditorArrayProxy
-<<<<<<< Updated upstream
-=======
     # per vertex occlusion, the 4th component of the normal (or the separate Occlusion
     # input on TB layouts), decoded the same way the vertex shader reads it. The pixel
     # shaders multiply the lit diffuse by it, so it's baked AO, not padding.
@@ -36,7 +34,6 @@ class DecodedVertexData:
     # game tangents (x, y, z, sign), transformed like the normals. Blender works out its own
     # tangent frame from the uvs; these let the two be compared / used directly.
     tangentArray: list = None
->>>>>>> Stashed changes
 
 @dataclass
 class PreprocessedWeightData:
@@ -122,11 +119,8 @@ class ModelImporterBase(ABC):
         editorWeightArray = self.createArray()
         editorJointArray = self.createArray()
         editorColorArray = self.createArray()
-<<<<<<< Updated upstream
-=======
         occlusionArray = []
         tangentArray = []
->>>>>>> Stashed changes
 
         self.logger.debug( 'decoding vertices' )
         # vertexBufferOffset + (indexStartIndex + vertexStartIndex) * stride equals the running byte total
@@ -140,10 +134,7 @@ class ModelImporterBase(ABC):
             editorVtxJointArray = None
             vtxColor = None
             vtxAlpha = None
-<<<<<<< Updated upstream
-=======
             vtxOcclusion = None
->>>>>>> Stashed changes
             for key, value in shaderInfo.inputsByName.items():
                 for inputInfo in value:
                     vertexStream.setOffset( vertexStart + inputInfo.offset )
@@ -198,12 +189,9 @@ class ModelImporterBase(ABC):
                 a = vtxAlpha if vtxAlpha != None else 1.0
                 editorColorArray.append( ( c[0]/255.0, c[1]/255.0, c[2]/255.0, a ) )
 
-<<<<<<< Updated upstream
-=======
             if vtxOcclusion != None:
                 occlusionArray.append( float( vtxOcclusion ) )
 
->>>>>>> Stashed changes
             if editorVtxWeightArray != None:
                 editorWeightArray.append( editorVtxWeightArray )
             if editorVtxJointArray != None:
@@ -218,13 +206,9 @@ class ModelImporterBase(ABC):
             editorUVExtendArray,
             editorWeightArray,
             editorJointArray,
-<<<<<<< Updated upstream
-            editorColorArray
-=======
             editorColorArray,
             occlusionArray,
             tangentArray
->>>>>>> Stashed changes
         )
             
     def decodeFaces( self, primitive: rModelPrimitive, indexStream: NclBitStream ) -> EditorArrayProxy:

@@ -1,3 +1,7 @@
+'''Editing a game material the way the .mrl.yml is edited: name, type, states, flag words,
+the cmd list (add, remove, reorder, change any flag / cbuffer / samplerstate / texture) and
+animData, in the shader editor sidebar (MT Material tab) and under Material Properties.
+The material can also be opened as YML text and applied back.'''
 import os
 import re
 import json
@@ -32,6 +36,10 @@ def _db( context ):
         return None
 
 
+# ----------------------------------------------------------------------------------------
+# what a field can be set to
+# ----------------------------------------------------------------------------------------
+
 MFX_TYPE = { 'cbuffer': 0, 'texture': 1, 'flag': 2, 'samplerstate': 3,
              'blendState': 4, 'depthStencilState': 5, 'rasterizerState': 6 }
 PREFIX = { 'cbuffer': ( 'CB', '$' ), 'texture': ( 't', ), 'flag': ( 'F', ), 'samplerstate': ( 'SS', ),
@@ -40,6 +48,7 @@ PREFIX = { 'cbuffer': ( 'CB', '$' ), 'texture': ( 't', ), 'flag': ( 'F', ), 'sam
 _names = {}
 
 def object_names( context, kind ):
+    '''shader objects of one kind the game knows (and the .mrl writer can encode)'''
     if kind in _names:
         return _names[kind]
     from ..mtlib import mvc3shaderdb, mvc3types
@@ -58,6 +67,8 @@ def object_names( context, kind ):
 _choices = {}
 
 def flag_choices( context, mat, index ):
+    '''implementations of a flag slot the game has a compiled shader for, given the rest of
+    this material and the renderer state'''
     e = mat.mt_entry
     cmd = e.cmds[index]
     slot, current = cmd.slot, cmd.value or cmd.slot
@@ -99,7 +110,13 @@ def flag_choices( context, mat, index ):
     _choices[key] = out
     return out
 
+
+# ----------------------------------------------------------------------------------------
+# rebuilding
+# ----------------------------------------------------------------------------------------
+
 def rebuild_material( context, mat, logger=None ):
+    '''every Blender variant of this MRL material; False if one has no game shader'''
     if not mt_mrl_props.has_entry( mat ):
         mt_mrl_props.adopt_legacy( mat )
     mt_mrl_props.sync( mat )
@@ -119,10 +136,16 @@ def _rebuild_or_report( op, context, mat ):
         return False
     return True
 
+
+# ----------------------------------------------------------------------------------------
+# operators
+# ----------------------------------------------------------------------------------------
+
 TARGETS = [ ( t, t, '' ) for t in ( 'type', 'blendState', 'depthStencilState', 'rasterizerState', 'slot', 'value' ) ]
 REBUILD_TARGETS = ( 'type', 'blendState', 'slot', 'value' )
 
 class SUB_OP_MtPickName( bpy.types.Operator ):
+    """Pick from the names the game's shader package has for this field"""
     bl_idname = 'sub.mt_pick_name'
     bl_label = 'Pick'
     bl_property = 'value'
@@ -159,6 +182,7 @@ class SUB_OP_MtPickName( bpy.types.Operator ):
 
 
 class SUB_OP_SetGameFlag( bpy.types.Operator ):
+    """Switch this flag. Only the implementations the game has a compiled shader for (with the rest of this material) are listed"""
     bl_idname = 'sub.mt_set_game_flag'
     bl_label = 'Set Flag'
     bl_property = 'value'
@@ -196,6 +220,7 @@ class SUB_OP_SetGameFlag( bpy.types.Operator ):
 
 
 def _cbuffer_size( cb ):
+    '''float count for a new cbuffer cmd: what other materials use, else the layout rounded to rows'''
     for m in bpy.data.materials:
         if mt_mrl_props.has_entry( m ):
             for c in m.mt_entry.cmds:
@@ -205,6 +230,7 @@ def _cbuffer_size( cb ):
     return ( lay[-1][0] // 4 + 1 ) * 4 if lay else 4
 
 class SUB_OP_MtCmdAdd( bpy.types.Operator ):
+    """Add a cmd after the selected one"""
     bl_idname = 'sub.mt_cmd_add'
     bl_label = 'Add Cmd'
     bl_options = { 'UNDO' }
@@ -250,6 +276,7 @@ class SUB_OP_MtCmdAdd( bpy.types.Operator ):
 
 
 class SUB_OP_MtCmdRemove( bpy.types.Operator ):
+    """Remove the selected cmd"""
     bl_idname = 'sub.mt_cmd_remove'
     bl_label = 'Remove Cmd'
     bl_options = { 'UNDO' }
@@ -271,6 +298,7 @@ class SUB_OP_MtCmdRemove( bpy.types.Operator ):
 
 
 class SUB_OP_MtCmdMove( bpy.types.Operator ):
+    """Move the selected cmd up or down"""
     bl_idname = 'sub.mt_cmd_move'
     bl_label = 'Move Cmd'
     bl_options = { 'UNDO' }
@@ -291,11 +319,14 @@ class SUB_OP_MtCmdMove( bpy.types.Operator ):
             e.active = to
         finally:
             mt_mrl_props._busy = False
+        # the order matters to the game only where a slot is set twice (the last one wins);
+        # the shader doesn't change otherwise
         mt_mrl_props.sync( mat, source=mat )
         return { 'FINISHED' }
 
 
 class SUB_OP_MtCbufferRows( bpy.types.Operator ):
+    """Add or remove a row of 4 floats at the end of this cbuffer"""
     bl_idname = 'sub.mt_cbuffer_rows'
     bl_label = 'Cbuffer Rows'
     bl_options = { 'UNDO' }
@@ -323,6 +354,7 @@ class SUB_OP_MtCbufferRows( bpy.types.Operator ):
 
 
 class SUB_OP_RebuildGameMaterial( bpy.types.Operator ):
+    """Rebuild this material's game shader from its MRL entry"""
     bl_idname = 'sub.mt_rebuild_game_material'
     bl_label = 'Rebuild Shader'
     bl_options = { 'UNDO' }
@@ -341,6 +373,7 @@ def _yaml_text_name( mat ):
     return '%s.mrl.yml' % mat.mt_entry.name
 
 class SUB_OP_MtEditYaml( bpy.types.Operator ):
+    """Open this material as .mrl.yml text in a Text Editor, to edit it like the IO plugin's YML. Apply YML reads it back"""
     bl_idname = 'sub.mt_edit_yaml'
     bl_label = 'Edit as YML'
 
@@ -366,6 +399,7 @@ class SUB_OP_MtEditYaml( bpy.types.Operator ):
 
 
 class SUB_OP_MtApplyYaml( bpy.types.Operator ):
+    """Read the YML text back into this material and rebuild its shader"""
     bl_idname = 'sub.mt_apply_yaml'
     bl_label = 'Apply YML'
     bl_options = { 'UNDO' }
@@ -390,6 +424,7 @@ class SUB_OP_MtApplyYaml( bpy.types.Operator ):
 
 
 class SUB_OP_MtAdoptEntry( bpy.types.Operator ):
+    """Read this material's full MRL entry from the source .mrl (materials imported before entries were kept)"""
     bl_idname = 'sub.mt_adopt_entry'
     bl_label = 'Read MRL Entry'
     bl_options = { 'UNDO' }
@@ -436,6 +471,11 @@ class SUB_UL_MtCmds( bpy.types.UIList ):
             f = self.filter_name.lower()
             flt = [ self.bitflag_filter_item if ( f in it.slot.lower() or f in it.value.lower() or f in it.kind ) else 0 for it in items ]
         return flt, []
+
+
+# ----------------------------------------------------------------------------------------
+# drawing
+# ----------------------------------------------------------------------------------------
 
 def _pick( row, target, index=-1, icon='VIEWZOOM' ):
     op = row.operator( SUB_OP_MtPickName.bl_idname, text='', icon=icon )

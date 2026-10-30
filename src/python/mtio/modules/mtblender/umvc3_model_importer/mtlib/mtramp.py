@@ -1,3 +1,13 @@
+"""FToonShaderHigh's colour tweak on the toon ramp, ported line for line from root.spkg
+pixel shader 2306 (instructions 177 to 224 of its disassembly).
+
+The shader samples the ramp, pushes it through this HSV style adjust driven by CBToon2's
+fToonFactor (x, y, z), and only then multiplies by the light colour. Since the adjust is a
+pure per texel colour function, applying it to the ramp image once gives the same result as
+the game doing it per pixel, so the Blender importer bakes a tweaked copy of the ramp.
+
+    rgb = toon_high(rgb (n,3) floats 0..1, toon2 (x, y, z))  -> (n,3)
+"""
 import numpy as np
 
 def _s(x, sw):

@@ -50,10 +50,7 @@ class imCacheVertex:
         self.weightIndices = ()
         self.color = ()
         self.alpha = ()
-<<<<<<< Updated upstream
-=======
         self.occlusion = ()
->>>>>>> Stashed changes
         
     def __eq__(self, o: object) -> bool:
         if isinstance( o, imCacheVertex ):
@@ -67,18 +64,11 @@ class imCacheVertex:
                    self.weights == o.weights and \
                    self.weightIndices == o.weightIndices and \
                    self.color == o.color and \
-<<<<<<< Updated upstream
-                   self.alpha == o.alpha
-                   
-    def __hash__( self ):
-        return hash((self.position, self.normal, self.tangent, self.uvPrimary, self.uvSecondary, self.uvUnique, self.uvExtend, self.weights, self.weightIndices, self.color, self.alpha))
-=======
                    self.alpha == o.alpha and \
                    self.occlusion == o.occlusion
                    
     def __hash__( self ):
         return hash((self.position, self.normal, self.tangent, self.uvPrimary, self.uvSecondary, self.uvUnique, self.uvExtend, self.weights, self.weightIndices, self.color, self.alpha, self.occlusion))
->>>>>>> Stashed changes
     
 '''
 typedef struct {
@@ -411,11 +401,7 @@ class imVertexIANonSkinBC(imVertex):
         stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[1] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[2] ) )
-<<<<<<< Updated upstream
-        stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
-=======
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( ( self.normal[0], self.normal[1], self.normal[2], self.occlusion ) ) )
->>>>>>> Stashed changes
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[0] ) )
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[1] ) )
         stream.writeUByte( vertexcodec.encodeU8( self.color[0] ) )
@@ -441,11 +427,7 @@ class imVertexIANonSkinBCA(imVertex):
         stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[1] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[2] ) )
-<<<<<<< Updated upstream
-        stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
-=======
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( ( self.normal[0], self.normal[1], self.normal[2], self.occlusion ) ) )
->>>>>>> Stashed changes
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[0] ) )
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[1] ) )
         stream.writeUShort( vertexcodec.encodeF16( self.uvExtend[0] ) )
@@ -473,11 +455,7 @@ class imVertexIANonSkinBLA(imVertex):
         stream.writeFloat( vertexcodec.encodeF32( self.position[0] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[1] ) )
         stream.writeFloat( vertexcodec.encodeF32( self.position[2] ) )
-<<<<<<< Updated upstream
-        stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( self.normal ) )
-=======
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( ( self.normal[0], self.normal[1], self.normal[2], self.occlusion ) ) )
->>>>>>> Stashed changes
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[0] ) )
         stream.writeUShort( vertexcodec.encodeF16( self.uvPrimary[1] ) )
         stream.writeUShort( vertexcodec.encodeF16( self.uvExtend[0] ) )
@@ -774,11 +752,7 @@ class imPrimitive(object):
             vertexShader=None, id=None, field2c=0, 
             positions=None, tangents=None, normals=None, uvPrimary=None, uvSecondary=None, uvUnique=None, uvExtend=None, weights=None, indices=None,
             colors=None, 
-<<<<<<< Updated upstream
-            envelopes=None, index=sys.maxsize ):
-=======
             envelopes=None, index=sys.maxsize, occlusions=None ):
->>>>>>> Stashed changes
         self.name = name
         self.materialName = materialName
         self.flags = flags
@@ -796,11 +770,8 @@ class imPrimitive(object):
         self.uvExtend = uvExtend if uvExtend != None else []
         self.weights = weights if weights != None else []
         self.colors = colors if colors != None else []
-<<<<<<< Updated upstream
-=======
         # per vertex occlusion (blender attribute 'mt_ao_darken' = 1 - occlusion), 1 when absent
         self.occlusions = occlusions if occlusions != None else []
->>>>>>> Stashed changes
         self.indices = indices if indices != None else []
         self.vertexFormat = imVertexFormat( vertexShader )
         self.envelopes = envelopes if envelopes != None else []
@@ -906,10 +877,7 @@ class imPrimitive(object):
         uvExtend = self.uvExtend
         weights = self.weights
         colors = self.colors
-<<<<<<< Updated upstream
-=======
         occlusions = self.occlusions
->>>>>>> Stashed changes
         tangents = self.tangents
         isSkinned = self.isSkinned()
         hasUvs = self.hasUvs()
@@ -923,10 +891,7 @@ class imPrimitive(object):
         self.uvExtend = []
         self.weights = []
         self.colors = []
-<<<<<<< Updated upstream
-=======
         self.occlusions = []
->>>>>>> Stashed changes
         self.tangents = []
         self.indices = []
         
@@ -956,12 +921,9 @@ class imPrimitive(object):
                 cv.color = tuple(colors[i][:3])
                 cv.alpha = colors[i][3]
 
-<<<<<<< Updated upstream
-=======
             if occlusions != None and len(occlusions) > i:
                 cv.occlusion = float(occlusions[i])
 
->>>>>>> Stashed changes
             if cv not in vertexIdxLookup:
                 idx = nextVertexIdx
                 nextVertexIdx += 1
@@ -980,12 +942,9 @@ class imPrimitive(object):
                 if cv.color != ():
                     self.colors.append( ( cv.color[0], cv.color[1], cv.color[2], cv.alpha ) )
 
-<<<<<<< Updated upstream
-=======
                 if cv.occlusion != ():
                     self.occlusions.append( cv.occlusion )
 
->>>>>>> Stashed changes
                 if isSkinned:
                     vtxWeight = imVertexWeight()
                     vtxWeight.indices = cv.weightIndices
@@ -1384,13 +1343,9 @@ class imModel:
                 vtx: imVertex = mesh.vertexFormat.vertexType()                
                 vtx.position = mesh.positions[i]
                 vtx.normal = mesh.normals[i]  
-<<<<<<< Updated upstream
-                vtx.occlusion = 1
-=======
                 # retail models bake ambient occlusion here and the shaders multiply the
                 # lit diffuse by it. Write back what was imported, 1 when there's none.
                 vtx.occlusion = mesh.occlusions[i] if mesh.occlusions is not None and len( mesh.occlusions ) > i else 1
->>>>>>> Stashed changes
 
                 if mesh.colors is not None and len( mesh.colors ) > i:
                     c = mesh.colors[i]
