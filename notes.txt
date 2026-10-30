@@ -286,3 +286,5 @@ struct
 	// 0x30
 	uint32    unknown0x30 <format = hex>;    // seems to be unused, overwritten with unknownData start address
 } objectData[fileHeader.objectCount];
+
+test push
