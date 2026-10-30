@@ -793,31 +793,18 @@ class imPrimitive(object):
         return totalMaxUsedBoneCount
 
     def reduceWeights( self, maxWeightsPerVertex ):
-        
-        # Reduce the weights in the primitive to be less or equal to the given max weights per vertex.
-        
-        # pick 4 most influential weights and remove the others
         if self.isSkinned():
-            for k, w in enumerate( self.weights ):
-                weightIndex = []
-                for k in range( 0, len(w.weights) ):
-                    weightIndex.append((w.weights[k], w.indices[k]))
-                weightIndex = sorted(weightIndex, key=lambda x: x[0])
-
-                weightTotal = 0
-                w.weights = []
-                w.indices = []
-                for k in range( 0, min(len(weightIndex), maxWeightsPerVertex) ):
-                    weight, index = weightIndex[k]
-                    weightTotal += weight
-                    w.weights.append( weight )
-                    w.indices.append( index )
-
-                # average out the weights
-                weightRemainder = 1 - weightTotal
-                weightAvgStep = weightRemainder / len(w.weights)
-                for k in range( 0, len(w.weights) ):
-                    w.weights[k] += weightAvgStep
+            for w in self.weights:
+                byIndex = {}
+                for weight, index in zip( w.weights, w.indices ):
+                    if weight > 0.001:
+                        byIndex[index] = byIndex.get( index, 0 ) + weight
+                if len( byIndex ) == 0:
+                    continue
+                weightIndex = sorted( byIndex.items(), key=lambda x: -x[1] )[:maxWeightsPerVertex]
+                weightTotal = sum( weight for _, weight in weightIndex )
+                w.indices = [ index for index, _ in weightIndex ]
+                w.weights = [ weight / weightTotal for _, weight in weightIndex ]
                     
     def updateVertexFormat( self, model ):
         if self.vertexFormat != None and self.vertexFormat.vertexType != None:
@@ -1330,8 +1317,8 @@ class imModel:
                 meshMatIndex = len( mod.materials )
                 mod.materials.append( mesh.materialName )
                 
-            if mesh.getMaxUsedBoneCount() > 4:
-                mesh.reduceWeights( 4 )
+            # always, not just past 4 bones: it also normalizes, and painted weights rarely sum to 1
+            mesh.reduceWeights( 4 )
 
             # determine vertex format 
             mesh.updateVertexFormat( self )
@@ -1403,11 +1390,10 @@ class imModel:
                         
                     assert usedBoneCount > 0, 'mesh {} has unrigged vertex at index {}'.format(mesh.name, i)
 
-                    # adjust for floating point error by averaging out the weights
-                    weightError = 1 - weightSum
-                    weightAvgStep = weightError / usedBoneCount
-                    for j in range( usedBoneCount ):
-                        vtx.weights[ j ] += weightAvgStep
+                    # adjust for floating point error, in proportion so the weights keep their balance
+                    # (reduceWeights already normalized them, so this is tiny)
+                    for j in range( vtx.MAX_WEIGHT_COUNT ):
+                        vtx.weights[ j ] = vtx.weights[ j ] / weightSum
                 
                 vertices.append( vtx )
                 

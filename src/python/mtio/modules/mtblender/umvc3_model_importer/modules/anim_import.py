@@ -13,7 +13,7 @@ import numpy as np
 
 from mathutils import Vector, Matrix
 from mathutils import Euler
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy.types import Panel, Operator, EditBone
 from bpy_extras import image_utils
 from bpy_extras.io_utils import ImportHelper
@@ -51,12 +51,39 @@ class LMTM3AEntry:
       yaml_loader = yaml.SafeLoader
       yaml_tag = u'!LMTM3AEntry'
 
-      def __init__(self, version, Name, FrameCount, LoopFrame, KeyFrames):
+      def __init__(self, version, Name, FrameCount, LoopFrame, KeyFrames, Flags=None, **extra):
         self.version = version
         self.Name = Name
         self.FrameCount = FrameCount
         self.LoopFrame = LoopFrame
         self.KeyFrames = KeyFrames
+        # Optional, LMT motion header byte +0x40. ThreeWorkTool's ymls don't carry it.
+        # bit 1 means the game uses full matrix scale inheritance for this motion.
+        self.Flags = Flags
+
+def mt_scale_to_blender(d):
+    return (float(d['Y']), float(d['X']), float(d['Z']))
+
+INHERIT_SCALE_ITEMS = [
+    ('NONE', 'None (game default)'),
+    ('ALIGNED', 'Aligned', 'Parent scale applied along the child\'s own axes'),
+    ('FULL', 'Full', 'Blender default, full matrix inheritance.'),
+]
+
+def inherit_mode_from_lmt_flags(flags):
+    if flags is None:
+        return None
+    if int(flags) & 2:
+        return 'FULL'
+    return 'NONE'
+
+def set_armature_inherit_scale(arm_obj, mode):
+    # In edit mode the edit bones win when the mode is left, so set those instead.
+    bones = arm_obj.data.edit_bones if arm_obj.mode == 'EDIT' else arm_obj.data.bones
+    for b in bones:
+        if b.name == 'jnt_255':
+            continue
+        b.inherit_scale = mode
 
 def LMTM3AEntry_constructor(loader: yaml.SafeLoader, node: yaml.nodes.MappingNode) -> LMTM3AEntry:
   """Construct a LMTM3AEntry."""
@@ -777,14 +804,19 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
 
             else:
                     
-                if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
+                if(Track[0]['TrackType'] == "localscale" or (Track[0]['TrackType'] == "xpto" and joint.name == 'jnt_255')):
+                    # xpto (usage 5) is ignored by the engine. The exporter writes jnt_255's scale there,
+                    # so it only comes back in on jnt_255.
                     print("A scale Track.")
                     obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[joint.name]
                     #Do Stuff here.
                     try:
                         Frame = int(Keyframe['Frame'])
-                        joint.scale = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                        if joint.name == 'jnt_255':
+                            joint.scale = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                        else:
+                            joint.scale = mt_scale_to_blender(Keyframe['data'])
                         #print(joint.scale)
                         
                         obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
@@ -992,14 +1024,19 @@ def ApplyTheTrack(Track, obj, joint, jointEdit, AnimName, import_legacy, usingme
 
             else:
                     
-                if(Track[0]['TrackType'] == "localscale" or Track[0]['TrackType'] == "xpto"):
+                if(Track[0]['TrackType'] == "localscale" or (Track[0]['TrackType'] == "xpto" and Bone == 255)):
+                    # xpto (usage 5) is ignored by the engine. The exporter writes jnt_255's scale there,
+                    # so it only comes back in on jnt_255.
                     print("A scale Track.")
                     obj = bpy.data.objects[ArmName]
                     joint = obj.pose.bones[f'jnt_{Bone}']
                     #Do Stuff here.
                     try:
                         Frame = int(Keyframe['Frame'])
-                        joint.scale = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                        if Bone == 255:
+                            joint.scale = (float(Keyframe['data']['X']), float(Keyframe['data']['Y']), float(Keyframe['data']['Z']))
+                        else:
+                            joint.scale = mt_scale_to_blender(Keyframe['data'])
                         #print(joint.scale)
                         
                         obj.keyframe_insert(data_path='pose.bones["%s"].%s' %
@@ -1113,6 +1150,11 @@ def readM3AanimationData(self,context,filepath):
                 print(data_loaded.Name)
                 print(data_loaded.FrameCount)
                 print(data_loaded.LoopFrame)
+                lmt_flags = getattr(data_loaded, 'Flags', None)
+                if lmt_flags is not None:
+                    action["LMTFlags"] = int(lmt_flags)
+                    if not self.import_legacy:
+                        set_armature_inherit_scale(bpy.data.objects[ArmName], inherit_mode_from_lmt_flags(lmt_flags))
                 keycount = 0
                 counter = 0
                 
@@ -1305,6 +1347,8 @@ class SUB_PT_Anim_Import(Panel):
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_add_joint_twofiftyfive', text = 'Add jnt_255 to Selected Armature')
+            row = layout.row(align=True)
+            row.operator_menu_enum('sub.mod_op_set_inherit_scale', 'mode', text='Set Inherit Scale on Armature')
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_add_simple_ik', text = 'Add Standard IKs to Selected Armature')
@@ -1397,6 +1441,33 @@ class SUB_PT_MOD_OT_Choose_Anim_Metadata_YML(bpy.types.Operator, ImportHelper):
         mip.anim_metadata_file = self.filepath
         return {'FINISHED'}    
     
+class SUB_OP_SET_INHERIT_SCALE(bpy.types.Operator):
+    bl_idname = 'sub.mod_op_set_inherit_scale'
+    bl_label = "Set Inherit Scale"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    mode: EnumProperty(
+        name='Mode',
+        items=INHERIT_SCALE_ITEMS + [
+            ('FROM_ACTION', 'From Active Action', 'Use the LMT flags stored on the active action (from a yml Flags line), None if it has none'),
+        ],
+        default='NONE',
+    )
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != 'ARMATURE':
+            self.report({'ERROR'}, "Select an armature first.")
+            return {'CANCELLED'}
+        mode = self.mode
+        if mode == 'FROM_ACTION':
+            action = obj.animation_data.action if obj.animation_data else None
+            flags = action.get("LMTFlags") if action is not None else None
+            mode = inherit_mode_from_lmt_flags(flags) if flags is not None else 'NONE'
+        set_armature_inherit_scale(obj, mode)
+        self.report({'INFO'}, f"Inherit Scale set to {mode} on {obj.name}")
+        return {'FINISHED'}
+
 class SUB_OP_ADD_JOINT_TWOFIFTYFIVE(bpy.types.Operator):
     """Adds jnt_255, the Engine Root Bone, to the top of the Armature."""
     bl_idname = 'sub.mod_op_add_joint_twofiftyfive'

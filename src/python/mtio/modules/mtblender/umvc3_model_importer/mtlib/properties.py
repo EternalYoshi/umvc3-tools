@@ -123,10 +123,15 @@ class UMVC3ModelImportProperties(PropertyGroup):
         description='Rebuild each material with the game\'s own shading (toon ramps, half lambert, rim light, specular, colour correct) from the mrl. Works in Eevee and Cycles. Sets the view transform to Standard so colours match the game',
         default=False,
     )
-    inherit_scale: BoolProperty(
+    inherit_scale_mode: EnumProperty(
         name='Inherit Scale',
-        description='Enables child bones to inherit scale of parents in animations. Recommended to leave unchecked or false if model is to be used for animation',
-        default=False,
+        description='How child bones take their parent\'s scale in animations. None matches how characters play in game, so leave it on None if the model is going to be animated',
+        items=[
+            ('NONE', 'None (game default)'),
+            ('ALIGNED', 'Aligned', 'Parent scale applied along the child\'s own axes.'),
+            ('FULL', 'Full', 'Blender default, full matrix inheritance.'),
+        ],
+        default='NONE',
     )                    
     create_layer: BoolProperty(
         name='Create_Collection',

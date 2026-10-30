@@ -120,6 +120,17 @@ def keyframeCount(bone, start, end) -> int:
     return N_keyframes
 
 #Double Checking the bone name for conflicts.
+def first_keyed_channel(action, fcu, frame) -> bool:
+    for other in action.fcurves:
+        if other.data_path == fcu.data_path and other.array_index < fcu.array_index:
+            for k in other.keyframe_points:
+                if k.co[0] == frame:
+                    return False
+    return True
+
+def mt_scale_from_blender(v, w):
+    return data(v.y, v.x, v.z, w)
+
 def NameChecker(index, fcu, bonename) -> bool:
     #pdb.set_trace()
 #This is inteded to remove naming issues with the data path that result in redundant/incorrect keys being inserted for the bone.
@@ -881,7 +892,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nTranslation: "+str(trans_basis_vec.y))                                            
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):                                                
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]
@@ -1005,7 +1016,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nRotation: "+str(rot_basis_quat.y))                                               
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):                                                   
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]
@@ -1024,7 +1035,10 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 else:
                                                     FrameText = metadata.getJointByName(FrameText)
                                                     FrameText = FrameText.id
-                                                    KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,0)     
+                                                    if self.export_legacy == True:
+                                                        KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,0)
+                                                    else:
+                                                        KeyToInsert = mt_scale_from_blender(scale_basis_vec, 0)
                                                 # FrameText = FrameText.replace(FrameText[:4], '')
                                                 # KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,1)
                                                 if(bone.name == "jnt_255"):
@@ -1105,7 +1119,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nScale: "+str(scale_basis_vec.y))
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]
@@ -1303,7 +1317,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nTranslation: "+str(trans_basis_vec.y))                                            
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):                                                
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]
@@ -1422,7 +1436,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nRotation: "+str(rot_basis_quat.y))                                               
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):                                                   
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]
@@ -1436,7 +1450,10 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 KeyTypesR.append("scale")
                                                 FrameText = bone.name
                                                 FrameText = FrameText.replace(FrameText[:4], '')
-                                                KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,1)
+                                                if self.export_legacy == True or bone.name == "jnt_255":
+                                                    KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,1)
+                                                else:
+                                                    KeyToInsert = mt_scale_from_blender(scale_basis_vec, 1)
                                                 if(bone.name == "jnt_255"):
                                                     TrueKeys.append(Keyframes(index,"xpto",int(FrameText),KeyToInsert))                                               
                                                 else:                                           
@@ -1515,7 +1532,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                             #f.write("\nScale: "+str(scale_basis_vec.y))
                                             #keycount += 1                                        
                                         #Z
-                                        if fcu.array_index == 2:
+                                        if first_keyed_channel(action, fcu, index):
                                             if NameChecker(index, fcu, bone.name):
                                                 print(fcu.data_path)
                                                 pt = [pt for pt in fcu.keyframe_points if pt.co[0] == index][0]

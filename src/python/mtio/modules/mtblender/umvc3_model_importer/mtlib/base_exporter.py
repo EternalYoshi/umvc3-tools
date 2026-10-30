@@ -660,6 +660,22 @@ class ModelExporterBase(ABC):
         else:
             return material.getName()
             
+    @staticmethod
+    def isMeshHiddenByUser( obj ):
+        viewLayer = bpy.context.view_layer
+        if viewLayer.objects.get( obj.name ) is None:
+            return True     # every collection it's in is excluded
+        if obj.get( 'mt_face_hidden' ):
+            eye = obj.hide_get( view_layer=viewLayer )
+            if not eye:
+                return not obj.visible_get( view_layer=viewLayer )
+            obj.hide_set( False, view_layer=viewLayer )
+            try:
+                return not obj.visible_get( view_layer=viewLayer )
+            finally:
+                obj.hide_set( True, view_layer=viewLayer )
+        return not obj.visible_get( view_layer=viewLayer )
+
     def iterMeshNodes( self ):
 
         #Tweaked to only care about meshes in the same collection as the selected Armature.
@@ -675,6 +691,10 @@ class ModelExporterBase(ABC):
             
             MeshNode = editorNode.node
             if not armatureCollections.intersection(MeshNode.users_collection):
+                continue
+
+            if self.isMeshHiddenByUser( MeshNode ):
+                self.logger.info( f'skipping hidden mesh: {MeshNode.name}' )
                 continue
 
             yield editorNode

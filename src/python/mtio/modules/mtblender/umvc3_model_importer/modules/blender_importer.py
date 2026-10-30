@@ -460,8 +460,7 @@ class BlenderModelImporter(ModelImporterBase):
         if parentBone:
             bpy_bone.parent = parentBone.unwrap()
 
-        if mip.inherit_scale == False:
-            bpy_bone.inherit_scale = "NONE"    
+        bpy_bone.inherit_scale = mip.inherit_scale_mode
 
         return BlenderEditBoneProxy(bpy_bone, tfm)
 

@@ -105,7 +105,7 @@ class SUB_PT_Model_Import(Panel):
         row.prop(mip, 'create_layer',text='Create Collection')
 
         row = layout.row(align=True)
-        row.prop(mip, 'inherit_scale',text='Inherit Scale')
+        row.prop(mip, 'inherit_scale_mode',text='Inherit Scale')
 
         row = layout.row(align=True)
         row.prop(mip, 'bones_in_front',text='Set Imported Model Bones To Display In Front')
@@ -391,7 +391,7 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Convert Textures to DDS = ",mip.convert_tex_to_dds)
         print("Convert MRL(Material) to YML = ",mip.convert_mrl_to_yml)
         print("Create Collection = ",mip.create_layer)
-        print("Make Child Bones Inherit Scale = ",mip.inherit_scale)
+        print("Inherit Scale Mode = ",mip.inherit_scale_mode)
         newMetadataPath = ModelMetadata.getDefaultFilePath( os.path.basename( mip.input_modelpath).split('.')[0] )
         print("Path Test:\n", newMetadataPath)
         print("Display Bones in Front:\n", mip.bones_in_front)
