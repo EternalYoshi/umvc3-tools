@@ -20,7 +20,7 @@ MIRROR.update({v: k for k, v in list(MIRROR.items())})
 # (section, left or centre id, label, required)
 SLOTS = [
     ('Body', 3, 'Pelvis / hips', True),
-    ('Body', 4, 'Spine (lowest)', True),
+    ('Body', 4, 'Spine (lowest)', False),
     ('Body', 5, 'Chest (clavicles hang off it)', True),
     ('Body', 6, 'Neck', False),
     ('Body', 7, 'Head', True),
@@ -29,7 +29,7 @@ SLOTS = [
     ('Body', 10, 'Forearm', True),
     ('Body', 11, 'Hand', True),
     ('Body', 16, 'Thigh', True),
-    ('Body', 17, 'Shin', True),
+    ('Body', 17, 'Shin', False),
     ('Body', 18, 'Foot', True),
     ('Body', 19, 'Toe', False),
     ('Fingers', 50, 'Thumb 1', False), ('Fingers', 51, 'Thumb 2', False), ('Fingers', 52, 'Thumb 3', False),
@@ -196,16 +196,331 @@ def structural_fill(arm, mapping):
     return m
 
 
-def detect(arm, presets=None):
+# ----------------------------------------------------------------------------- structure
+
+def structural_detect(arm):
+    """Work out which bone is which from the rig's shape alone, no names.
+    Returns ({id: bone}, [notes]). Uses bone head positions in world space and the
+    hierarchy; bones with no skin weight anywhere below them are ignored."""
+    bones = arm.data.bones
+    names = list(bones.keys())
+    notes = []
+    H = {b.name: arm.matrix_world @ b.head_local for b in bones}
+    T = {b.name: arm.matrix_world @ b.tail_local for b in bones}
+    parent = {b.name: (b.parent.name if b.parent else None) for b in bones}
+    kids = {n: [] for n in names}
+    for n, p in parent.items():
+        if p is not None:
+            kids[p].append(n)
+    total, verts = bone_weights(skinned_meshes(arm), set(names))
+    sub = {}
+
+    def subw(n):
+        if n not in sub:
+            sub[n] = verts.get(n, 0) + sum(subw(c) for c in kids[n])
+        return sub[n]
+    live = {n for n in names if subw(n) > 0}
+    if len(live) < 8:
+        return {}, ['too few weighted bones to read the skeleton']
+    pts = [H[n] for n in live]
+    ext = max(max(p[k] for p in pts) - min(p[k] for p in pts) for k in range(3))
+    tol = 0.02 * ext
+
+    # the mirror plane: the world axis that pairs up the most bones
+    best = None
+    for ax in range(3):
+        c = (max(p[ax] for p in pts) + min(p[ax] for p in pts)) / 2
+        score = 0
+        for p in pts:
+            if abs(p[ax] - c) < tol:
+                continue
+            q = p.copy()
+            q[ax] = 2 * c - p[ax]
+            if any((q - o).length < tol for o in pts):
+                score += 1
+        if best is None or score > best[0]:
+            best = (score, ax, c)
+    _, ax, c = best
+
+    def off(n):
+        return H[n][ax] - c
+
+    def mirrored(p):
+        q = p.copy()
+        q[ax] = 2 * c - p[ax]
+        return q
+    # a side bone has a partner at its mirrored position; clavicles can start almost on
+    # the centre line, so distance from the plane alone can't tell
+    sided = set()
+    for n in live:
+        if abs(off(n)) < 0.1 * tol:
+            continue
+        q = mirrored(H[n])
+        if any(m_ != n and (H[m_] - q).length < tol and off(m_) * off(n) < 0 for m_ in live):
+            sided.add(n)
+
+    def centre(n):
+        if n in sided:
+            return False
+        if abs(off(n)) < tol * 1.5:
+            return True
+        # one sided bones (a holster, a single shoulder pad) follow their parent
+        return parent[n] is None or centre(parent[n])
+    depth = {}
+
+    def dep(n):
+        if n not in depth:
+            depth[n] = 0 if parent[n] is None else dep(parent[n]) + 1
+        return depth[n]
+    desc = {}
+
+    def below(n):
+        if n not in desc:
+            out = [n]
+            for k in kids[n]:
+                if k in live:
+                    out += below(k)
+            desc[n] = out
+        return desc[n]
+
+    def reach(frm, n):
+        return max((H[d] - H[frm]).length for d in below(n) + [n])
+
+    def main_chain(n):
+        chain = [n]
+        while True:
+            cs = [k for k in kids[chain[-1]] if k in live]
+            if not cs:
+                return chain
+            chain.append(max(cs, key=lambda k: (reach(chain[-1], k), subw(k))))
+
+    # limb roots: side bones hanging off a centre bone; two per side, longest first
+    roots = [n for n in live if not centre(n) and (parent[n] is None or centre(parent[n]))]
+    sides = {}
+    for sgn in (1, -1):
+        rs = sorted([n for n in roots if off(n) * sgn > 0], key=lambda n: -max(
+            (H[d] - H[n]).length for d in below(n)) - (T[n] - H[n]).length)
+        rs = [n for n in rs if max((H[d] - H[n]).length for d in below(n) + [n]) + (T[n] - H[n]).length > 0.15 * ext]
+        if len(rs) < 2:
+            return {}, ['couldn\'t find two limbs on each side of the rig']
+        a, b = rs[0], rs[1]
+        pa, pb = dep(parent[a]) if parent[a] else -1, dep(parent[b]) if parent[b] else -1
+        if pa == pb:        # same attach depth: the arm ends in a hand that branches into fingers
+            leaves = lambda n: sum(1 for d in below(n) if not [k for k in kids[d] if k in live])
+            leg, armr = (a, b) if leaves(a) < leaves(b) else (b, a)
+        else:
+            leg, armr = (a, b) if pa < pb else (b, a)
+        sides[sgn] = dict(leg=leg, arm=armr)
+
+    legs = [sides[1]['leg'], sides[-1]['leg']]
+    arms = [sides[1]['arm'], sides[-1]['arm']]
+    up = ((H[arms[0]] + H[arms[1]]) / 2 - (H[legs[0]] + H[legs[1]]) / 2).normalized()
+
+    def height(n):
+        return H[n].dot(up)
+    ground = min(min(H[d].dot(up), T[d].dot(up)) for l in legs for d in below(l))
+
+    def lca(ns):
+        paths = []
+        for n in ns:
+            p, x = [], n
+            while x is not None:
+                p.append(x)
+                x = parent[x]
+            paths.append(p[::-1])
+        out = None
+        for group in zip(*paths):
+            if all(g == group[0] for g in group):
+                out = group[0]
+            else:
+                break
+        return out
+
+    m = {}
+    out = {}
+    for sgn in (1, -1):
+        s = sides[sgn]
+        # ---- leg: thigh, shin, foot, toe
+        L = main_chain(s['leg'])
+        hip_h = height(L[0]) - ground
+        fi = next((i for i in range(1, len(L)) if height(L[i]) - ground < 0.25 * hip_h), None)
+        leg = dict(thigh=L[0])
+        if fi is not None:
+            leg['foot'] = L[fi]
+            if fi + 1 < len(L):
+                leg['toe'] = L[fi + 1]
+            mid = [L[i] for i in range(1, fi)]
+            span = H[L[fi]] - H[L[0]]
+            best = None
+            for n in mid:
+                r = (H[n] - H[L[0]]).dot(span) / max(span.length_squared, 1e-9)
+                if 0.25 < r < 0.75 and (best is None or abs(r - 0.5) < best[0]):
+                    best = (abs(r - 0.5), n)
+            if best:
+                leg['shin'] = best[1]
+        # ---- arm: clavicle, upper arm, forearm, hand
+        A = main_chain(s['arm'])
+        hand = None
+        for i in range(2, len(A)):
+            n = A[i]
+            cs = [k for k in kids[n] if k in live]
+            d0 = (H[n] - H[A[0]]).length
+            if len(cs) >= 2 and all(reach(n, k) < 0.6 * d0 for k in cs):
+                hand = i
+                break
+        if hand is None:
+            hand = min(len(A) - 1, 3 if len(A) > 4 else 2)
+            notes.append('no fingers found on one hand; guessed the hand from the arm length')
+        pre = [A[0]]
+        for n in A[1:hand]:
+            if (H[n] - H[pre[-1]]).length > tol:
+                pre.append(n)
+        wrist = H[A[hand]]
+        armd = dict(hand=A[hand])
+        if len(pre) >= 3 and abs(off(pre[0])) < 0.35 * abs(wrist[ax] - c):
+            armd['clavicle'] = pre[0]
+            pre = pre[1:]
+        armd['upper'] = pre[0]
+        span = wrist - H[pre[0]]
+        best = None
+        for n in pre[1:]:
+            r = (H[n] - H[pre[0]]).dot(span) / max(span.length_squared, 1e-9)
+            if 0.25 < r < 0.8 and (best is None or abs(r - 0.5) < best[0]):
+                best = (abs(r - 0.5), n)
+        if best:
+            armd['fore'] = best[1]
+        out[sgn] = dict(leg=leg, arm=armd)
+
+    # facing: toes point forward; left = up x forward
+    toes = [out[s]['leg'].get('toe') for s in (1, -1)]
+    feet = [out[s]['leg'].get('foot') for s in (1, -1)]
+    fwd = None
+    if all(toes) and all(feet):
+        f = sum(((H[t] - H[f]) for t, f in zip(toes, feet)), Vector())
+        f = f - up * f.dot(up)
+        if f.length > 1e-6:
+            fwd = f.normalized()
+    if fwd is None:
+        side = Vector((0, 0, 0))
+        side[ax] = 1
+        fwd = up.cross(side).normalized() * -1          # Blender's habit: facing -Y with left at +X
+        notes.append('no toes, so the facing is a guess; check Left and Right')
+    left = up.cross(fwd)
+    lsign = 1 if left[ax] > 0 else -1
+
+    for sgn in (1, -1):
+        is_l = sgn == lsign
+        o = out[sgn]
+        base = {'thigh': 16, 'shin': 17, 'foot': 18, 'toe': 19, 'clavicle': 8, 'upper': 9, 'fore': 10, 'hand': 11}
+        for k, v in list(o['leg'].items()) + list(o['arm'].items()):
+            i = base[k] if is_l else MIRROR[base[k]]
+            m[i] = v
+        # fingers
+        hand = o['arm']['hand']
+        roots = []
+        for k in kids[hand]:
+            if k not in live:
+                continue
+            cs = [x for x in kids[k] if x in live]
+            if len(cs) >= 2 and (H[k] - H[hand]).length < 0.5 * max(reach(hand, x) for x in cs):
+                roots += cs          # a palm helper with fingers under it
+            else:
+                roots.append(k)
+        def length(r):
+            return max(max((H[d] - H[hand]).length, (T[d] - H[hand]).length) for d in below(r))
+        if roots:
+            longest = max(length(r) for r in roots)
+            roots = [r for r in roots if length(r) >= 0.55 * longest]
+        if roots:
+            fo = {r: (H[r] - H[hand]).dot(fwd) for r in roots}
+            along = (H[hand] - H[o['arm'].get('fore', hand)])
+            along = along.normalized() if along.length > 1e-6 else fwd
+            thumb = max(roots, key=lambda r: fo[r] - 0.5 * abs((H[r] - H[hand]).dot(along)))
+            rest = sorted([r for r in roots if r != thumb], key=lambda r: -fo[r])
+            order = {1: [53], 2: [53, 56], 3: [53, 56, 63]}.get(len(rest), [53, 56, 59, 63])
+            chains = [(thumb, 50)] + list(zip(rest, order))
+            for r, b in chains:
+                ch = main_chain(r)
+                if b != 50 and len(ch) >= 4:
+                    meta, ch = ch[0], ch[1:]
+                    if b == 63:
+                        m[62 if is_l else 82] = meta
+                for j, n in enumerate(ch[:3]):
+                    i = b + j
+                    m[i if is_l else MIRROR[i]] = n
+
+    # spine, neck, head
+    chest = lca(arms)
+    pelvis = lca(legs + [chest]) if chest else None
+    if chest is None or pelvis is None or chest == pelvis:
+        notes.append('couldn\'t trace the spine between hips and chest')
+    else:
+        m[3] = pelvis
+        m[5] = chest
+        path, x = [], parent[chest]
+        while x is not None and x != pelvis:
+            path.append(x)
+            x = parent[x]
+        if path:
+            m[4] = path[-1]
+        q = []
+        x = chest
+        while True:
+            cs = [k for k in kids[x] if k in live and centre(k) and height(k) > height(chest) - tol
+                  and not any(a in below(k) for a in arms)]
+            if not cs:
+                break
+            x = max(cs, key=lambda k: (reach(x, k), subw(k)))
+            q.append(x)
+        if q:
+            # the head carries most of what hangs above the chest (hair and face bones
+            # carry less), and it is usually where the face bones branch off
+            cand = [n for n in q if subw(n) >= 0.5 * subw(q[0])]
+            branching = [n for n in cand[1:] if len([k for k in kids[n] if k in live]) >= 2]
+            head = branching[0] if branching else cand[-1]
+            hi = q.index(head)
+            if hi > 0:
+                m[6] = q[hi - 1]
+            m[7] = head
+            # eyes: a mirrored pair right under the head, in front of it and above it
+            pair = [k for k in kids[head] if k in live and not centre(k)
+                    and (H[k] - H[head]).dot(fwd) > 0 and (H[k] - H[head]).dot(up) > 0]
+            l_eye = [k for k in pair if (off(k) > 0) == (lsign > 0)]
+            r_eye = [k for k in pair if (off(k) > 0) != (lsign > 0)]
+            if len(l_eye) == 1 and len(r_eye) == 1:
+                m[90], m[99] = l_eye[0], r_eye[0]
+    used = {}
+    for i, n in list(m.items()):
+        if n in used:
+            del m[i]
+        else:
+            used[n] = i
+    return m, notes
+
+
+def detect(arm, presets=None, preset=None):
+    """(preset key or None, {id: bone}, notes). The rig's shape decides by default; bone
+    names from a matching preset fill what the shape can't tell (face, twist helpers).
+    When a preset knows most of the body by name, its names win for those rows.
+    preset: None tries them all, 'NONE' ignores names."""
     presets = presets or load_presets()
-    best = (None, {})
-    for key, p in presets.items():
-        m = match_preset(arm, p)
-        if len(m) > len(best[1]):
-            best = (key, m)
-    if best[0] is None:
-        return None, {}
-    return best[0], structural_fill(arm, best[1])
+    shape, notes = structural_detect(arm)
+    key, named = None, {}
+    if preset != 'NONE':
+        for k, p in (presets.items() if preset in (None, 'AUTO') else [(preset, presets[preset])]):
+            mm = match_preset(arm, p)
+            if len(mm) > len(named):
+                key, named = k, mm
+    body = [i for i in slot_ids() if i < 24]
+    trust_names = sum(1 for i in body if i in named) >= 10
+    first, second = (named, shape) if trust_names else (shape, named)
+    m = dict(first)
+    for i, n in second.items():
+        if i not in m and n not in m.values():
+            m[i] = n
+    if not trust_names:
+        m = structural_fill(arm, m)
+    return key, m, notes
 
 
 def preset_reparent(arm, preset):
@@ -245,6 +560,11 @@ def check_mapping(arm, ref_arm, mapping):
             warnings.append('the reference rig has no %s, those stay unmapped' % ', '.join('jnt_%d' % i for i in missing))
     if 6 not in mapping and 7 in mapping:
         warnings.append('no neck bone: a neck joint gets added between chest and head')
+    if 4 not in mapping and 5 in mapping:
+        warnings.append('no lower spine bone: one gets added between pelvis and chest')
+    for shin, label in ((17, 'left'), (21, 'right')):
+        if shin not in mapping and mapping.get(shin + 1):
+            warnings.append('%s: no shin bone, the knee joint gets added but nothing below it bends' % label)
     for hand, first, label in ((11, 50, 'left'), (15, 70, 'right')):
         if mapping.get(hand) and not any(mapping.get(i) for i in range(first, first + 16)):
             warnings.append('%s: no fingers mapped, the hand won\'t open or close' % label)
@@ -438,7 +758,7 @@ def _place_dummies(eb, dummies, dname, target, frames, rparent):
 
 
 def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None,
-            scale_to_ref=True, report=print):
+            scale_to_ref=True, report=print, forced=None):
     mapping = {int(i): n for i, n in mapping.items() if n}
     errors, warnings = check_mapping(arm, ref_arm, mapping)
     if errors:
@@ -450,6 +770,13 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
     mapping = {i: n for i, n in mapping.items() if i in frames}
     std = {n: i for i, n in mapping.items()}           # bone -> id
     reparent = dict(reparent or {})
+    # extra bones with an id from a .csv: kept whatever their weights, never merged
+    forced = {b: (int(v[0]), (v[1] if len(v) > 1 else '') or '') for b, v in (forced or {}).items()
+              if b in arm.data.bones and b not in std}
+    fids = [v[0] for v in forced.values()]
+    clash = sorted({i for i in fids if fids.count(i) > 1} | {i for i in fids if i in mapping})
+    if clash:
+        raise RuntimeError('the .csv ids %s are used twice (or by a mapped row)' % ', '.join(map(str, clash)))
     report('%s: %d bones, %d mapped to vanilla joints' % (arm.name, len(arm.data.bones), len(std)))
 
     error = measure_merge_error(arm, actions, report=report) if actions else None
@@ -560,12 +887,23 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
         if any(x in mapped for x in subtree(nme) if x != nme):
             keep.add(nme)
     keep -= set(above_pelvis)
-    dead = [bb.name for bb in bones if bb.name not in keep and bb.name not in above_pelvis
+    protected = set()
+    for nme in forced:
+        x = bones[nme]
+        while x is not None and x.name not in protected:
+            protected.add(x.name)
+            x = x.parent
+    protected -= set(above_pelvis) | mapped
+    dead = [bb.name for bb in bones if bb.name not in keep and bb.name not in protected and bb.name not in above_pelvis
             and all(verts[x] == 0 for x in subtree(bb.name))]
     dead_set = set(dead)
     alive = {bb.name for bb in bones if bb.name not in dead_set and bb.name not in above_pelvis}
     pool = [i for i in range(1, MAX_ID + 1) if i not in STANDARD]
-    limit = len(mapping) + len(dummies) + len(pool)
+    bad = sorted(i for i in fids if i in dummies)
+    if bad:
+        raise RuntimeError('the .csv gives ids %s to extra bones, but the rig needs them as vanilla joints'
+                           % ', '.join(map(str, bad)))
+    limit = len(mapping) + len(dummies) + len(pool) + len([i for i in fids if i in STANDARD])
     count = len(alive) + len(dummies)
 
     newparent = {bb.name: (bb.parent.name if bb.parent else None) for bb in bones}
@@ -574,7 +912,7 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
             newparent[c] = par
 
     def candidate(nme):
-        return (nme in alive and nme not in keep and nme not in reparent.values()
+        return (nme in alive and nme not in keep and nme not in protected and nme not in reparent.values()
                 and not nme.startswith(tuple(keep_prefixes))
                 and not any(newparent.get(k) == nme for k in alive)
                 and newparent[nme] in alive)
@@ -757,8 +1095,11 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
     if len(order) > limit:
         raise RuntimeError('%d bones, limit %d' % (len(order), limit))
     ids = {n: tid[n] for n in order if n in tid}
+    for nme, (i, _) in forced.items():
+        if nme in order:
+            ids[nme] = i
     ref_used = set(frames)
-    free_first = [i for i in pool if i not in ref_used] + [i for i in pool if i in ref_used]
+    free_first = [i for i in pool if i not in ref_used and i not in fids] + [i for i in pool if i in ref_used and i not in fids]
     total, _ = bone_weights(meshes, set(order))
     rest = [n for n in order if n not in ids]
     # pass-through bones and heavy bones get the IDs the slot's own rig doesn't use
@@ -781,6 +1122,18 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
         else:
             m, sided = mirror_name(nme, names)
             sym[nme] = m if m is not None else (None if sided else nme)
+    # symmetry from the .csv: a bone name or jnt_N; the partner points back
+    by_id = {v: k for k, v in ids.items()}
+    for nme, (i, s) in forced.items():
+        if nme not in ids or not s:
+            continue
+        t = s if s in names else by_id.get(_id_of(s))
+        if t is None:
+            report('  note: %s: symmetrical opposite %s is not on the rig, left as is' % (nme, s))
+            continue
+        sym[nme] = t
+        if t not in forced or not forced[t][1]:
+            sym[t] = nme
     source = {nme: (nme if not nme.startswith('__umvc3_jnt_') else '') for nme in order}
     new_name = {nme: 'jnt_%d' % ids[nme] for nme in order}
     for nme in order:
@@ -816,6 +1169,77 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
 
 
 
+# ----------------------------------------------------------------------------- csv
+
+def _id_of(text):
+    m = re.match(r'\s*(?:jnt_)?(\d+)\s*$', text or '')
+    return int(m.group(1)) if m else None
+
+
+def read_bone_csv(path, arm):
+    """A bone list as .csv: bone name, UMVC3 id (9 or jnt_9), optionally the symmetrical
+    opposite. A header row is optional; with one, BoneName/SourceName/Name, ID and any
+    Symmetrical/Mirror column are recognised, so the converter's own bone list and the
+    3ds Max MT attribute CSV both load. Returns ({id: bone} for the shared joints,
+    {bone: [id, symmetry]} for the rest, notes)."""
+    import csv
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        rows = [r for r in csv.reader(f) if r and any(x.strip() for x in r)]
+    if not rows:
+        raise RuntimeError('the .csv is empty')
+    names = set(arm.data.bones.keys())
+    first = [x.strip() for x in rows[0]]
+    if len(first) > 1 and _id_of(first[1]) is None:
+        hdr = [x.lower().replace(' ', '').replace('_', '') for x in first]
+        rows = rows[1:]
+        bone_cols = [i for i, h in enumerate(hdr) if h in (
+            'sourcename', 'source', 'sfvname', 'originalname', 'original', 'bonename', 'bone', 'name', 'node')]
+        id_col = next((i for i, h in enumerate(hdr) if h in ('id', 'jnt', 'jointid', 'jntid', 'boneid', 'umvc3id')), 1)
+        sym_col = next((i for i, h in enumerate(hdr) if 'sym' in h or 'mirror' in h or 'opposite' in h), None)
+        bone_cols = bone_cols or [0]
+    else:
+        bone_cols, id_col, sym_col = [0], 1, (2 if len(first) > 2 else None)
+    mapping, forced, notes = {}, {}, []
+    for r in rows:
+        cells = [x.strip() for x in r]
+        bone = next((cells[c] for c in bone_cols if c < len(cells) and cells[c] in names), None)
+        i = _id_of(cells[id_col]) if id_col < len(cells) else None
+        if bone is None:
+            notes.append('no bone named %s' % (cells[bone_cols[0]] if bone_cols[0] < len(cells) else '?'))
+            continue
+        if i is None or not (1 <= i <= MAX_ID):
+            notes.append('%s: id %s is not 1-%d' % (bone, cells[id_col] if id_col < len(cells) else '?', MAX_ID))
+            continue
+        sym = cells[sym_col] if sym_col is not None and sym_col < len(cells) else ''
+        if i in STANDARD:
+            mapping[i] = bone
+        else:
+            forced[bone] = [i, sym]
+    return mapping, forced, notes
+
+
+def write_bone_csv(path, arm):
+    """the current rows and fixed ids as BoneName,ID,SymmetricalName"""
+    m = _mapping(arm)
+    forced = _forced(arm)
+    lines = ['BoneName,ID,SymmetricalName']
+    for i in sorted(m):
+        mi = MIRROR.get(i, i)
+        lines.append('%s,%d,%s' % (m[i], i, ('jnt_%d' % mi) if (mi == i or mi in m) else ''))
+    for b, (i, sym) in sorted(forced.items(), key=lambda kv: kv[1][0]):
+        lines.append('%s,%d,%s' % (b, i, sym))
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write('\n'.join(lines) + '\n')
+    return len(lines) - 1
+
+
+def _forced(arm):
+    try:
+        return {k: list(v) for k, v in json.loads(arm.get('umvc3_forced', '{}') or '{}').items()}
+    except Exception:
+        return {}
+
+
 def _poll_ref(self, obj):
     return obj.type == 'ARMATURE' and any(b.name == 'jnt_3' for b in obj.data.bones)
 
@@ -832,7 +1256,8 @@ def _preset_items(self, context):
     global _PRESET_ITEMS
     if _PRESET_ITEMS:
         return _PRESET_ITEMS
-    items = [('AUTO', 'Detect automatically', 'Try every preset and keep the one that matches the most bones')]
+    items = [('AUTO', 'Shape, then any matching names', 'Read the rig from its shape; bone names from a matching preset fill the rest'),
+             ('NONE', 'Shape only', 'Ignore bone names completely')]
     for k, p in load_presets().items():
         items.append((k, p.get('name', k), ''))
     _PRESET_ITEMS = items
@@ -868,7 +1293,7 @@ def _mapping(arm):
 
 def _set_mapping(arm, mapping):
     arm.umvc3_skeleton_map.clear()
-    for i in slot_ids():
+    for i in slot_ids() + sorted(set(mapping) - set(slot_ids())):
         s = arm.umvc3_skeleton_map.add()
         s.sid = i
         s.bone = mapping.get(i, '')
@@ -900,20 +1325,79 @@ class SUB_OP_SkeletonDetect(bpy.types.Operator):
         arm = context.active_object
         st = context.scene.umvc3_skeleton
         presets = load_presets()
-        if st.preset == 'AUTO':
-            key, m = detect(arm, presets)
-        else:
-            key = st.preset
-            m = structural_fill(arm, match_preset(arm, presets[key]))
+        key, m, notes = detect(arm, presets, st.preset)
         _set_mapping(arm, m)
         arm['umvc3_skeleton_preset'] = key or ''
         req = required_ids()
         missing = [slot_label(i) for i in sorted(req) if i not in m]
-        name = presets[key]['name'] if key else 'nothing'
+        how = 'from the rig\'s shape' + (' and %s names' % presets[key]['name'].split(' (')[0] if key else '')
+        msg = 'found %d bones %s' % (len(m), how)
+        for n in notes:
+            print('Detect Bones: ' + n)
         if missing:
-            self.report({'WARNING'}, 'matched %d bones (%s); still to set: %s' % (len(m), name, ', '.join(missing)))
+            self.report({'WARNING'}, '%s; still to set: %s' % (msg, ', '.join(missing)))
+        elif notes:
+            self.report({'WARNING'}, '%s; %s' % (msg, notes[0]))
         else:
-            self.report({'INFO'}, 'matched %d bones (%s)' % (len(m), name))
+            self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
+from bpy_extras.io_utils import ImportHelper, ExportHelper
+
+
+class SUB_OP_SkeletonLoadCSV(bpy.types.Operator, ImportHelper):
+    """Fill the rows from a .csv bone list (bone name, UMVC3 id, symmetrical opposite). Bones given an id outside the shared joints keep that id and symmetry when converted"""
+    bl_idname = 'sub.umvc3_skeleton_load_csv'
+    bl_label = 'Load CSV'
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = '.csv'
+    filter_glob: bpy.props.StringProperty(default='*.csv', options={'HIDDEN'})
+    replace: bpy.props.BoolProperty(name='Replace the rows', default=True,
+                                    description='Clear the current rows first; off adds to them')
+
+    def execute(self, context):
+        arm = context.active_object
+        try:
+            m, forced, notes = read_bone_csv(self.filepath, arm)
+        except Exception as e:
+            self.report({'ERROR'}, 'could not read the .csv: %s' % e)
+            return {'CANCELLED'}
+        cur = {} if self.replace else _mapping(arm)
+        cur = {i: n for i, n in cur.items() if n not in m.values() and n not in forced}
+        cur.update(m)
+        _set_mapping(arm, cur)
+        old = {} if self.replace else _forced(arm)
+        old.update(forced)
+        arm['umvc3_forced'] = json.dumps(old)
+        for n in notes:
+            print('Load CSV: ' + n)
+        msg = '%d shared joints and %d extra bones from the .csv' % (len(m), len(forced))
+        self.report({'WARNING'} if notes else {'INFO'}, msg + ('; %d rows skipped (see the console)' % len(notes) if notes else ''))
+        return {'FINISHED'}
+
+
+class SUB_OP_SkeletonSaveCSV(bpy.types.Operator, ExportHelper):
+    """Save the rows (and any fixed ids) as a .csv bone list, to reuse on a rig with the same bones"""
+    bl_idname = 'sub.umvc3_skeleton_save_csv'
+    bl_label = 'Save CSV'
+    filename_ext = '.csv'
+    filter_glob: bpy.props.StringProperty(default='*.csv', options={'HIDDEN'})
+
+    def execute(self, context):
+        n = write_bone_csv(self.filepath, context.active_object)
+        self.report({'INFO'}, 'saved %d bones' % n)
+        return {'FINISHED'}
+
+
+class SUB_OP_SkeletonClearFixed(bpy.types.Operator):
+    """Forget the ids the .csv gave to extra bones; they get free ids when converted"""
+    bl_idname = 'sub.umvc3_skeleton_clear_fixed'
+    bl_label = 'Clear Fixed IDs'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        context.active_object['umvc3_forced'] = '{}'
         return {'FINISHED'}
 
 
@@ -970,7 +1454,7 @@ class SUB_OP_SkeletonConvert(bpy.types.Operator):
                 f.data_path.split('"')[1] in arm.data.bones for f in getattr(a, 'fcurves', []))] if st.use_actions else None
         keepp = [x.strip() for x in st.keep_prefixes.split(',') if x.strip()] + list(preset.get('keep_prefixes', []))
         try:
-            convert(arm, ref, _mapping(arm), keep_prefixes=keepp, reparent=preset_reparent(arm, preset),
+            convert(arm, ref, _mapping(arm), keep_prefixes=keepp, reparent=preset_reparent(arm, preset), forced=_forced(arm),
                     actions=acts or None, scale_to_ref=st.scale_to_ref, report=report)
         except Exception as e:
             self.report({'ERROR'}, str(e))
@@ -1016,6 +1500,14 @@ class SUB_PT_CustomSkeleton(bpy.types.Panel):
         row = col.row()
         row.scale_y = 1.2
         row.operator(SUB_OP_SkeletonDetect.bl_idname, icon='VIEWZOOM')
+        row = col.row(align=True)
+        row.operator(SUB_OP_SkeletonLoadCSV.bl_idname, icon='IMPORT')
+        row.operator(SUB_OP_SkeletonSaveCSV.bl_idname, icon='EXPORT')
+        fixed = _forced(arm)
+        if fixed:
+            row = col.row(align=True)
+            row.label(text='%d extra bones keep their .csv ids' % len(fixed), icon='LINKED')
+            row.operator(SUB_OP_SkeletonClearFixed.bl_idname, text='', icon='X')
         if not len(arm.umvc3_skeleton_map):
             return
         row = col.row(align=True)
@@ -1079,7 +1571,8 @@ class SUB_PT_CustomSkeleton(bpy.types.Panel):
             section(box, 'Face', 4)
 
 
-CLASSES = [UMVC3SkeletonSlot, UMVC3SkeletonSettings, SUB_OP_SkeletonDetect, SUB_OP_SkeletonSwapSides,
+CLASSES = [UMVC3SkeletonSlot, UMVC3SkeletonSettings, SUB_OP_SkeletonDetect, SUB_OP_SkeletonLoadCSV,
+           SUB_OP_SkeletonSaveCSV, SUB_OP_SkeletonClearFixed, SUB_OP_SkeletonSwapSides,
            SUB_OP_SkeletonMirror, SUB_OP_SkeletonConvert, SUB_PT_CustomSkeleton]
 
 

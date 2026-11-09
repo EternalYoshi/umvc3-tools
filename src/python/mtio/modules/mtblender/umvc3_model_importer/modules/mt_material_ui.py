@@ -1,7 +1,3 @@
-'''Editing a game material the way the .mrl.yml is edited: name, type, states, flag words,
-the cmd list (add, remove, reorder, change any flag / cbuffer / samplerstate / texture) and
-animData, in the shader editor sidebar (MT Material tab) and under Material Properties.
-The material can also be opened as YML text and applied back.'''
 import os
 import re
 import json
@@ -35,11 +31,6 @@ def _db( context ):
     except Exception:
         return None
 
-
-# ----------------------------------------------------------------------------------------
-# what a field can be set to
-# ----------------------------------------------------------------------------------------
-
 MFX_TYPE = { 'cbuffer': 0, 'texture': 1, 'flag': 2, 'samplerstate': 3,
              'blendState': 4, 'depthStencilState': 5, 'rasterizerState': 6 }
 PREFIX = { 'cbuffer': ( 'CB', '$' ), 'texture': ( 't', ), 'flag': ( 'F', ), 'samplerstate': ( 'SS', ),
@@ -67,8 +58,6 @@ def object_names( context, kind ):
 _choices = {}
 
 def flag_choices( context, mat, index ):
-    '''implementations of a flag slot the game has a compiled shader for, given the rest of
-    this material and the renderer state'''
     e = mat.mt_entry
     cmd = e.cmds[index]
     slot, current = cmd.slot, cmd.value or cmd.slot
@@ -111,12 +100,7 @@ def flag_choices( context, mat, index ):
     return out
 
 
-# ----------------------------------------------------------------------------------------
-# rebuilding
-# ----------------------------------------------------------------------------------------
-
 def rebuild_material( context, mat, logger=None ):
-    '''every Blender variant of this MRL material; False if one has no game shader'''
     if not mt_mrl_props.has_entry( mat ):
         mt_mrl_props.adopt_legacy( mat )
     mt_mrl_props.sync( mat )
@@ -135,11 +119,6 @@ def _rebuild_or_report( op, context, mat ):
         op.report( { 'WARNING' }, 'the game has no shader for this combination; the material keeps its last shader' )
         return False
     return True
-
-
-# ----------------------------------------------------------------------------------------
-# operators
-# ----------------------------------------------------------------------------------------
 
 TARGETS = [ ( t, t, '' ) for t in ( 'type', 'blendState', 'depthStencilState', 'rasterizerState', 'slot', 'value' ) ]
 REBUILD_TARGETS = ( 'type', 'blendState', 'slot', 'value' )
@@ -182,7 +161,6 @@ class SUB_OP_MtPickName( bpy.types.Operator ):
 
 
 class SUB_OP_SetGameFlag( bpy.types.Operator ):
-    """Switch this flag. Only the implementations the game has a compiled shader for (with the rest of this material) are listed"""
     bl_idname = 'sub.mt_set_game_flag'
     bl_label = 'Set Flag'
     bl_property = 'value'
@@ -220,7 +198,6 @@ class SUB_OP_SetGameFlag( bpy.types.Operator ):
 
 
 def _cbuffer_size( cb ):
-    '''float count for a new cbuffer cmd: what other materials use, else the layout rounded to rows'''
     for m in bpy.data.materials:
         if mt_mrl_props.has_entry( m ):
             for c in m.mt_entry.cmds:
@@ -230,7 +207,6 @@ def _cbuffer_size( cb ):
     return ( lay[-1][0] // 4 + 1 ) * 4 if lay else 4
 
 class SUB_OP_MtCmdAdd( bpy.types.Operator ):
-    """Add a cmd after the selected one"""
     bl_idname = 'sub.mt_cmd_add'
     bl_label = 'Add Cmd'
     bl_options = { 'UNDO' }
@@ -298,7 +274,6 @@ class SUB_OP_MtCmdRemove( bpy.types.Operator ):
 
 
 class SUB_OP_MtCmdMove( bpy.types.Operator ):
-    """Move the selected cmd up or down"""
     bl_idname = 'sub.mt_cmd_move'
     bl_label = 'Move Cmd'
     bl_options = { 'UNDO' }
@@ -326,7 +301,6 @@ class SUB_OP_MtCmdMove( bpy.types.Operator ):
 
 
 class SUB_OP_MtCbufferRows( bpy.types.Operator ):
-    """Add or remove a row of 4 floats at the end of this cbuffer"""
     bl_idname = 'sub.mt_cbuffer_rows'
     bl_label = 'Cbuffer Rows'
     bl_options = { 'UNDO' }
@@ -354,7 +328,6 @@ class SUB_OP_MtCbufferRows( bpy.types.Operator ):
 
 
 class SUB_OP_RebuildGameMaterial( bpy.types.Operator ):
-    """Rebuild this material's game shader from its MRL entry"""
     bl_idname = 'sub.mt_rebuild_game_material'
     bl_label = 'Rebuild Shader'
     bl_options = { 'UNDO' }
@@ -372,8 +345,65 @@ class SUB_OP_RebuildGameMaterial( bpy.types.Operator ):
 def _yaml_text_name( mat ):
     return '%s.mrl.yml' % mat.mt_entry.name
 
+def _digest( text ):
+    import hashlib
+    return hashlib.md5( text.encode( 'utf-8' ) ).hexdigest()
+
+def material_for_text( txt ):
+    if txt is None:
+        return None
+    for m in bpy.data.materials:
+        if m.get( 'mt_yaml_text' ) == txt.name and ( mt_mrl_props.has_entry( m ) or 'mt_mrl' in m.keys() ):
+            return m
+    return None
+
+def _text_space( context ):
+    sd = getattr( context, 'space_data', None )
+    return sd if sd is not None and sd.type == 'TEXT_EDITOR' else None
+
+def _show_text( context, txt ):
+    space = _text_space( context )
+    if space is not None:
+        space.text = txt
+        return True
+    for area in context.screen.areas if context.screen else []:
+        if area.type == 'TEXT_EDITOR':
+            area.spaces.active.text = txt
+            return True
+    return False
+
+def open_yaml( context, mat, force=False ):
+    if not mt_mrl_props.has_entry( mat ):
+        mt_mrl_props.adopt_legacy( mat )
+    mt_mrl_props.sync( mat )
+    name = _yaml_text_name( mat )
+    txt = bpy.data.texts.get( name )
+    kept = False
+    if txt is None:
+        txt = bpy.data.texts.new( name )
+    elif not force and txt.get( 'mt_synced' ) and txt['mt_synced'] != _digest( txt.as_string() ):
+        kept = True     # the user typed in it and hasn't applied yet
+    if not kept:
+        body = mt_mrl_props.entry_yaml( mat )
+        txt.from_string( body )
+        txt['mt_synced'] = _digest( txt.as_string() )
+    mat['mt_yaml_text'] = txt.name
+    _show_text( context, txt )
+    return txt, kept
+
+def apply_text( context, mat, txt ):
+    body = txt.as_string()
+    mt_mrl_props.apply_yaml( mat, body )
+    warnings = list( mt_mrl_props.problems( mat ) )
+    ok = rebuild_material( context, mat, _logger() )
+    if not ok:
+        warnings.append( 'the game has no shader for this combination; the material keeps its last shader' )
+    txt['mt_synced'] = _digest( body )
+    _live_state.pop( txt.name, None )
+    return ok, warnings
+
+
 class SUB_OP_MtEditYaml( bpy.types.Operator ):
-    """Open this material as .mrl.yml text in a Text Editor, to edit it like the IO plugin's YML. Apply YML reads it back"""
     bl_idname = 'sub.mt_edit_yaml'
     bl_label = 'Edit as YML'
 
@@ -381,50 +411,211 @@ class SUB_OP_MtEditYaml( bpy.types.Operator ):
         mat = _game_material( context )
         if mat is None:
             return { 'CANCELLED' }
-        if not mt_mrl_props.has_entry( mat ):
-            mt_mrl_props.adopt_legacy( mat )
-        mt_mrl_props.sync( mat )
-        name = _yaml_text_name( mat )
-        txt = bpy.data.texts.get( name ) or bpy.data.texts.new( name )
-        txt.from_string( mt_mrl_props.entry_yaml( mat ) )
-        mat['mt_yaml_text'] = txt.name
-        shown = False
-        for area in context.screen.areas if context.screen else []:
-            if area.type == 'TEXT_EDITOR':
-                area.spaces.active.text = txt
-                shown = True
-                break
-        self.report( { 'INFO' }, f'"{txt.name}" is in the Text Editor' + ( '' if shown else ' (open one to see it)' ) + '; press Apply YML when done' )
+        txt, kept = open_yaml( context, mat )
+        shown = any( a.type == 'TEXT_EDITOR' and a.spaces.active.text == txt for a in ( context.screen.areas if context.screen else [] ) )
+        msg = f'"{txt.name}" is in the Text Editor' + ( '' if shown else ' (Scripting tab, pick it from the text list)' )
+        if kept:
+            msg += '; kept your unapplied edits (Reload in the Text Editor sidebar discards them)'
+        self.report( { 'INFO' }, msg + '; press Apply YML when done' )
         return { 'FINISHED' }
 
 
 class SUB_OP_MtApplyYaml( bpy.types.Operator ):
-    """Read the YML text back into this material and rebuild its shader"""
     bl_idname = 'sub.mt_apply_yaml'
     bl_label = 'Apply YML'
     bl_options = { 'UNDO' }
 
+    text_name: bpy.props.StringProperty( options={ 'SKIP_SAVE' } )
+
+    @staticmethod
+    def _target( context, text_name='' ):
+        if text_name:
+            txt = bpy.data.texts.get( text_name )
+            return material_for_text( txt ), txt
+        space = _text_space( context )
+        if space is not None and space.text is not None:
+            mat = material_for_text( space.text )
+            if mat is not None:
+                return mat, space.text
+        mat = _game_material( context )
+        if mat is None:
+            return None, None
+        return mat, bpy.data.texts.get( mat.get( 'mt_yaml_text', '' ) )
+
     @classmethod
     def poll( cls, context ):
-        mat = _game_material( context )
-        return mat is not None and bpy.data.texts.get( mat.get( 'mt_yaml_text', '' ) ) is not None
+        mat, txt = cls._target( context )
+        return mat is not None and txt is not None
 
     def execute( self, context ):
-        mat = _game_material( context )
-        txt = bpy.data.texts.get( mat.get( 'mt_yaml_text', '' ) )
+        mat, txt = self._target( context, self.text_name )
+        if mat is None or txt is None:
+            self.report( { 'ERROR' }, 'this text is not linked to a game material (open it with Edit as YML)' )
+            return { 'CANCELLED' }
         try:
-            mt_mrl_props.apply_yaml( mat, txt.as_string() )
+            ok, warnings = apply_text( context, mat, txt )
         except Exception as e:
             self.report( { 'ERROR' }, f'could not read the YML: {e}' )
             return { 'CANCELLED' }
-        for p in mt_mrl_props.problems( mat ):
-            self.report( { 'WARNING' }, p )
-        _rebuild_or_report( self, context, mat )
+        for w in warnings:
+            self.report( { 'WARNING' }, w )
+        if ok and not warnings:
+            self.report( { 'INFO' }, f'applied to {mat.mt_entry.name}' )
         return { 'FINISHED' }
 
 
+def _game_material_items( self, context ):
+    seen, items = set(), []
+    for m in sorted( bpy.data.materials, key=lambda m: m.name ):
+        if not ( mt_mrl_props.has_entry( m ) or 'mt_mrl' in m.keys() ):
+            continue
+        key = m.get( 'mt_entry_key', m.name )
+        if key in seen:
+            continue
+        seen.add( key )
+        label = m.mt_entry.name if mt_mrl_props.has_entry( m ) and m.mt_entry.name else m.name
+        items.append( ( m.name, label, m.get( 'mt_mrl_path', '' ) ) )
+    _game_material_items.keep = items or [ ( '', '(no game materials)', '' ) ]
+    return _game_material_items.keep
+
+
+class SUB_OP_MtOpenYaml( bpy.types.Operator ):
+    bl_idname = 'sub.mt_open_yaml'
+    bl_label = 'Open Material YML'
+    bl_property = 'material'
+
+    material: bpy.props.EnumProperty( items=_game_material_items )
+
+    def invoke( self, context, event ):
+        context.window_manager.invoke_search_popup( self )
+        return { 'RUNNING_MODAL' }
+
+    def execute( self, context ):
+        mat = bpy.data.materials.get( self.material )
+        if mat is None:
+            return { 'CANCELLED' }
+        txt, kept = open_yaml( context, mat )
+        if kept:
+            self.report( { 'INFO' }, 'kept your unapplied edits (Reload discards them)' )
+        return { 'FINISHED' }
+
+
+class SUB_OP_MtReloadYaml( bpy.types.Operator ):
+    bl_idname = 'sub.mt_reload_yaml'
+    bl_label = 'Reload From Material'
+
+    @classmethod
+    def poll( cls, context ):
+        space = _text_space( context )
+        return space is not None and material_for_text( space.text ) is not None
+
+    def invoke( self, context, event ):
+        return context.window_manager.invoke_confirm( self, event )
+
+    def execute( self, context ):
+        space = _text_space( context )
+        open_yaml( context, material_for_text( space.text ), force=True )
+        _live_state.pop( space.text.name, None )
+        return { 'FINISHED' }
+
+
+# live apply: while on, a text that stops changing for a moment is applied on its own
+_live = { 'on': False }
+_live_state = {}        # text name -> { 'seen': digest, 'error': str }
+LIVE_INTERVAL = 0.6
+
+def _redraw_text_editors():
+    wm = bpy.context.window_manager
+    for win in wm.windows if wm else []:
+        for area in win.screen.areas:
+            if area.type == 'TEXT_EDITOR':
+                area.tag_redraw()
+
+def _live_tick():
+    if not _live['on']:
+        return None
+    changed = False
+    for txt in bpy.data.texts:
+        if not txt.get( 'mt_synced' ):
+            continue
+        body = txt.as_string()
+        d = _digest( body )
+        if d == txt['mt_synced']:
+            continue
+        st = _live_state.setdefault( txt.name, {} )
+        if st.get( 'seen' ) != d:
+            st['seen'] = d          # still typing, wait for it to settle
+            continue
+        if st.get( 'failed' ) == d:
+            continue
+        mat = material_for_text( txt )
+        if mat is None:
+            continue
+        try:
+            ok, warnings = apply_text( bpy.context, mat, txt )
+            if warnings:
+                _live_state.setdefault( txt.name, {} )['error'] = '; '.join( warnings )
+        except Exception as e:
+            st['failed'] = d
+            st['error'] = str( e ).splitlines()[0] if str( e ) else type( e ).__name__
+        changed = True
+    if changed:
+        _redraw_text_editors()
+    return LIVE_INTERVAL
+
+
+class SUB_OP_MtYamlLive( bpy.types.Operator ):
+    bl_idname = 'sub.mt_yaml_live'
+    bl_label = 'Live Apply'
+
+    def execute( self, context ):
+        _live['on'] = not _live['on']
+        if _live['on'] and not bpy.app.timers.is_registered( _live_tick ):
+            bpy.app.timers.register( _live_tick, first_interval=LIVE_INTERVAL )
+        return { 'FINISHED' }
+
+
+class SUB_PT_MtYamlText( bpy.types.Panel ):
+    bl_idname = 'SUB_PT_MtYamlText'
+    bl_label = 'MT Material YML'
+    bl_space_type = 'TEXT_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = 'MT Material'
+
+    def draw( self, context ):
+        layout = self.layout
+        layout.operator( SUB_OP_MtOpenYaml.bl_idname, icon='VIEWZOOM' )
+        space = _text_space( context )
+        txt = space.text if space is not None else None
+        mat = material_for_text( txt )
+        if mat is None:
+            layout.label( text='Open a material to edit its YML here' )
+            return
+        box = layout.box()
+        box.label( text=mat.mt_entry.name if mt_mrl_props.has_entry( mat ) else mat.name, icon='MATERIAL' )
+        n = len( mt_mrl_props.siblings( mat ) ) if mt_mrl_props.has_entry( mat ) else 1
+        if n > 1:
+            box.label( text=f'{n} vertex layout variants, all updated' )
+        dirty = txt.get( 'mt_synced' ) and txt['mt_synced'] != _digest( txt.as_string() )
+        row = layout.row( align=True )
+        row.scale_y = 1.4
+        row.alert = bool( dirty )
+        op = row.operator( SUB_OP_MtApplyYaml.bl_idname, icon='CHECKMARK',
+                           text='Apply YML (unapplied edits)' if dirty else 'Apply YML' )
+        op.text_name = txt.name
+        layout.operator( SUB_OP_MtReloadYaml.bl_idname, icon='FILE_REFRESH' )
+        layout.operator( SUB_OP_MtYamlLive.bl_idname, icon='PAUSE' if _live['on'] else 'PLAY',
+                         text='Live Apply: On' if _live['on'] else 'Live Apply: Off', depress=_live['on'] )
+        err = _live_state.get( txt.name, {} ).get( 'error' )
+        if err and dirty:
+            col = layout.column()
+            col.alert = True
+            col.label( text=err, icon='ERROR' )
+        layout.separator()
+        layout.operator( 'sub.mt_export_mrl', icon='EXPORT' )
+
+
 class SUB_OP_MtAdoptEntry( bpy.types.Operator ):
-    """Read this material's full MRL entry from the source .mrl (materials imported before entries were kept)"""
     bl_idname = 'sub.mt_adopt_entry'
     bl_label = 'Read MRL Entry'
     bl_options = { 'UNDO' }
@@ -472,10 +663,6 @@ class SUB_UL_MtCmds( bpy.types.UIList ):
             flt = [ self.bitflag_filter_item if ( f in it.slot.lower() or f in it.value.lower() or f in it.kind ) else 0 for it in items ]
         return flt, []
 
-
-# ----------------------------------------------------------------------------------------
-# drawing
-# ----------------------------------------------------------------------------------------
 
 def _pick( row, target, index=-1, icon='VIEWZOOM' ):
     op = row.operator( SUB_OP_MtPickName.bl_idname, text='', icon=icon )
@@ -641,4 +828,5 @@ class SUB_PT_GameMaterialNodes( bpy.types.Panel ):
 
 CLASSES = ( SUB_OP_MtPickName, SUB_OP_SetGameFlag, SUB_OP_MtCmdAdd, SUB_OP_MtCmdRemove, SUB_OP_MtCmdMove,
             SUB_OP_MtCbufferRows, SUB_OP_RebuildGameMaterial, SUB_OP_MtEditYaml, SUB_OP_MtApplyYaml,
-            SUB_OP_MtAdoptEntry, SUB_MT_MtCmdAdd, SUB_UL_MtCmds, SUB_PT_GameMaterial, SUB_PT_GameMaterialNodes )
+            SUB_OP_MtAdoptEntry, SUB_MT_MtCmdAdd, SUB_UL_MtCmds, SUB_PT_GameMaterial, SUB_PT_GameMaterialNodes,
+            SUB_OP_MtOpenYaml, SUB_OP_MtReloadYaml, SUB_OP_MtYamlLive, SUB_PT_MtYamlText )
