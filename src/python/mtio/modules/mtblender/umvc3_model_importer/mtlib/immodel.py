@@ -1197,9 +1197,50 @@ class imModel:
             
         # create id -> index map
         # order joints by index, or at the end of not specified
+        oldOrder = list( self.joints )
         self.joints = sorted( self.joints, key=lambda x: x.index )
+        # every vanilla model lists parents before their children, and the bone index
+        # attribute alone doesn't promise that, so fix the order where it breaks it
+        position = { id( j ): k for k, j in enumerate( self.joints ) }
+        if any( j.parent is not None and id( j.parent ) in position and position[ id( j.parent ) ] > k
+                for k, j in enumerate( self.joints ) ):
+            ordered, placed = [], set()
+            def place( j ):
+                if id( j ) in placed:
+                    return
+                if j.parent is not None and id( j.parent ) in position:
+                    place( j.parent )
+                placed.add( id( j ) )
+                ordered.append( j )
+            for j in self.joints:
+                place( j )
+            self.joints = ordered
+        if oldOrder != self.joints:
+            # vertex weights were built against the order the joints were created in,
+            # so they have to follow the sort or every vertex lands on the wrong bone.
+            # Imported models never hit this because their index attribute is the
+            # creation order; any rig built or reordered in Blender does.
+            newIndex = { id( j ): k for k, j in enumerate( self.joints ) }
+            remap = [ newIndex[ id( j ) ] for j in oldOrder ]
+            seen = set()
+            for prim in self.primitives:
+                for w in ( prim.weights or [] ):
+                    if w is None or id( w ) in seen:
+                        continue
+                    seen.add( id( w ) )
+                    w.indices = [ remap[ x ] for x in w.indices ]
         if len( self.joints ) > 255:
-            raise RuntimeError( f"Too many bones. (max 256, got {len(self.joints)})" )
+            raise RuntimeError( f"Too many bones. (max 255, got {len(self.joints)})" )
+        # the bone map is 256 entries indexed by id, so ids must be 0-255 and unique,
+        # otherwise one bone silently takes another's place and animations hit the wrong one
+        byId = {}
+        for j in self.joints:
+            if not ( 0 <= j.id <= 255 ):
+                raise RuntimeError( f'Bone {j.name} has id {j.id}; ids go from 0 to 255.' )
+            if j.id in byId:
+                raise RuntimeError( f'Bones {byId[j.id]} and {j.name} both have id {j.id}. '
+                                    'Give one of them another id (its "id" MT attribute or its jnt_ name).' )
+            byId[ j.id ] = j.name
         
         for i, joint in enumerate( self.joints ):
             mod.boneMap[ joint.id ] = i

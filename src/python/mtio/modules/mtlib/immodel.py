@@ -1004,7 +1004,20 @@ class imModel:
             
         # create id -> index map
         # order joints by index, or at the end of not specified
+        oldOrder = list( self.joints )
         self.joints = sorted( self.joints, key=lambda x: x.index )
+        if oldOrder != self.joints:
+            # vertex weights were built against the order the joints were created in,
+            # so they have to follow the sort or every vertex lands on the wrong bone
+            newIndex = { id( j ): k for k, j in enumerate( self.joints ) }
+            remap = [ newIndex[ id( j ) ] for j in oldOrder ]
+            seen = set()
+            for prim in self.primitives:
+                for w in ( prim.weights or [] ):
+                    if w is None or id( w ) in seen:
+                        continue
+                    seen.add( id( w ) )
+                    w.indices = [ remap[ x ] for x in w.indices ]
         if len( self.joints ) > 255:
             raise RuntimeError( f"Too many bones. (max 256, got {len(self.joints)})" )
         

@@ -444,7 +444,7 @@ class ModelExporterBase(ABC):
         
         joint = imJoint(
             name=editorNode.getName(), 
-            id=attribs.id if attribs.id != None else len(self.model.joints) + 1, 
+            id=attribs.id if attribs.id != None else 0,     # no id: a free one is picked once every bone is in
             localMtx=localMtx,
             #parent=self.processBone( editorNode.getParent() ) if editorNode.getParent() is not None and self.shouldExportNode( editorNode.getParent() ) else None, # must be specified here to not infere with matrix calculations
             field03=attribs.field03,
@@ -456,6 +456,8 @@ class ModelExporterBase(ABC):
             index=attribs.index,
         )
         
+        if attribs.id == None:
+            self._autoIdJoints.append( joint )
         self.editorNodeToJointMap[editorNode.unwrap()] = joint
         parent = self.processBone( mip, editorNode.getParent() ) if (editorNode.getParent() is not None or editorNode.node.parent is not None) and self.shouldExportBoneNode( editorNode.getParent() ) else None
         if parent is not None:
@@ -560,11 +562,23 @@ class ModelExporterBase(ABC):
                 joint.symmetry = self.model.joints[refJoint.symmetryIndex] if refJoint.symmetryIndex != 255 else None
         else:
             # process all bones in the scene
+            self._autoIdJoints = []
             boneNodes = list(self.iterBoneNodes())
             for i, editorNode in enumerate( boneNodes ):
                 self.updateProgress( 'Processing bones', i, len(boneNodes) )
                 self.processBone( mip, editorNode )
                 self.processedNodes.add( editorNode )
+
+            # bones without an id (no MT attribute, not jnt_N, not in the metadata) used to
+            # get len(joints) + 1, which could collide with a bone that has that id for real.
+            # Give them the lowest ids nothing else uses.
+            if self._autoIdJoints:
+                auto = set( id( j ) for j in self._autoIdJoints )
+                taken = set( j.id for j in self.model.joints if id( j ) not in auto )
+                free = ( i for i in range( 1, 255 ) if i not in taken )
+                for joint in self._autoIdJoints:
+                    joint.id = next( free, 255 )
+                    self.logger.info( f'bone {joint.name} has no id, using {joint.id}' )
 
             # resolve symmetry references once every joint exists, otherwise forward
             # references to bones we haven't walked yet come back as None

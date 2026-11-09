@@ -707,6 +707,23 @@ def NameChecker(index, fcu, bonename) -> bool:
 
     return True
 
+def _jointId(metadata, bone):
+    joint = metadata.getJointByName(bone.name) if metadata is not None else None
+    if joint is not None:
+        return joint.id
+    value = bone.get('id') if hasattr(bone, 'get') else None
+    if value not in (None, ''):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    m = re.match(r'jnt_(\d+)$', bone.name)
+    if m:
+        return int(m.group(1))
+    raise RuntimeError(f'Bone {bone.name} has no joint id: name it jnt_<id>, give it an "id" MT attribute, '
+                       'or pick a metadata .yml that lists it.')
+
+
 def loadMetadata( self, path ):
     metadata = ModelMetadata()
     if os.path.exists( path ):
@@ -910,11 +927,10 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     
                                                     KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
                                                     if(bone.name == "jnt_255"):
-                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        FrameText = _jointId(None, bone)
                                                         TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
                                                     else:
-                                                        FrameText = metadata.getJointByName(FrameText)
-                                                        FrameText = FrameText.id
+                                                        FrameText = _jointId(metadata, bone)
                                                         TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
 
                                                 else:    
@@ -926,12 +942,11 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     #KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
                                                     
                                                     if(bone.name == "jnt_255"):
-                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        FrameText = _jointId(None, bone)
                                                         KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
                                                         TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
                                                     else:
-                                                        FrameText = metadata.getJointByName(FrameText)
-                                                        FrameText = FrameText.id
+                                                        FrameText = _jointId(metadata, bone)
                                                         NewX = -1 * trans_basis_vec.x
                                                         KeyToInsert = data(trans_basis_vec.y,NewX,trans_basis_vec.z,0)
                                                         TrueKeys.append(Keyframes(index,"localposition",int(FrameText),KeyToInsert))
@@ -1030,11 +1045,10 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 KeyTypesR.append("scale")
                                                 FrameText = bone.name
                                                 if bone.name == 'jnt_255':                                                    
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    FrameText = _jointId(None, bone)
                                                     KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,0)
                                                 else:
-                                                    FrameText = metadata.getJointByName(FrameText)
-                                                    FrameText = FrameText.id
+                                                    FrameText = _jointId(metadata, bone)
                                                     if self.export_legacy == True:
                                                         KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,0)
                                                     else:
@@ -1136,12 +1150,11 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     FrameText = bone.name
 
                                                     if(bone.name == "jnt_255"):
-                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        FrameText = _jointId(None, bone)
                                                         KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
                                                         TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
                                                     else:
-                                                        FrameText = metadata.getJointByName(FrameText)
-                                                        FrameText = FrameText.id
+                                                        FrameText = _jointId(metadata, bone)
                                                         KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
                                                         TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))          
 
@@ -1152,12 +1165,11 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     FrameText = bone.name
                                                     
                                                     if(bone.name == "jnt_255"):
-                                                        FrameText = FrameText.replace(FrameText[:4], '')
+                                                        FrameText = _jointId(None, bone)
                                                         KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)                                                        
                                                         TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
                                                     else:
-                                                        FrameText = metadata.getJointByName(FrameText)
-                                                        FrameText = FrameText.id
+                                                        FrameText = _jointId(metadata, bone)
                                                         NewX = -1 * rot_basis_vec.x
                                                         KeyToInsert = data(rot_basis_vec.y,NewX,rot_basis_vec.z,rot_basis_vec.w)
                                                         TrueKeys.append(Keyframes(index,"localrotation",int(FrameText),KeyToInsert))                                      
@@ -1332,7 +1344,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     KeysL.append(trans_basis_quat)
                                                     KeyTypesL.append("location")
                                                     FrameText = bone.name
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    FrameText = _jointId(None, bone)
                                                     KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
                                                     if(bone.name == "jnt_255"):
                                                         TrueKeys.append(Keyframes(index,"absoluteposition",int(FrameText),KeyToInsert))
@@ -1345,7 +1357,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     KeysL.append(trans_basis_quat)
                                                     KeyTypesL.append("location")
                                                     FrameText = bone.name
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    FrameText = _jointId(None, bone)
                                                     #KeyToInsert = data(trans_basis_vec.x,trans_basis_vec.y,trans_basis_vec.z,0)
 
                                                     if(bone.name == "jnt_255"):
@@ -1449,7 +1461,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                 KeysR.append(scale_basis_vec)
                                                 KeyTypesR.append("scale")
                                                 FrameText = bone.name
-                                                FrameText = FrameText.replace(FrameText[:4], '')
+                                                FrameText = _jointId(None, bone)
                                                 if self.export_legacy == True or bone.name == "jnt_255":
                                                     KeyToInsert = data(scale_basis_vec.x,scale_basis_vec.y,scale_basis_vec.z,1)
                                                 else:
@@ -1547,7 +1559,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     KeysS.append(scale_basis_quat)
                                                     KeyTypesS.append("rotation_quaternion")
                                                     FrameText = bone.name
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    FrameText = _jointId(None, bone)
                                                     KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
                                                     if(bone.name == "jnt_255"):
                                                         TrueKeys.append(Keyframes(index,"absoluterotation",int(FrameText),KeyToInsert))     
@@ -1559,7 +1571,7 @@ def WriteM3AanimationData(context,filepath, read_LoopFrame, self):
                                                     KeysS.append(scale_basis_quat)
                                                     KeyTypesS.append("rotation_quaternion")
                                                     FrameText = bone.name
-                                                    FrameText = FrameText.replace(FrameText[:4], '')
+                                                    FrameText = _jointId(None, bone)
                                                     if(bone.name == "jnt_255"):
                                                         KeyToInsert = data(rot_basis_vec.x,rot_basis_vec.y,rot_basis_vec.z,rot_basis_vec.w)
 
