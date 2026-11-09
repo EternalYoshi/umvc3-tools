@@ -171,13 +171,24 @@ class BlenderModelExporter(ModelExporterBase):
     UV_LAYER_SLOTS = ( 'UVPrimary', 'UVSecondary', 'UVUnique', 'UVExtend' )
 
     def getMaterialName( self, material ):
-        # Blender uniquifies datablock names, so a second copy of char_body comes back
-        # as char_body.001 and stops matching anything in the mrl. Strip the suffix.
         if material is None:
             return 'default_material'
+        # game materials carry their MRL entry: its name is what Export MRL writes
+        try:
+            entry = getattr( material, 'mt_entry', None )
+            if entry is not None and 'mt_entry_key' in material.keys() and entry.name:
+                return entry.name
+        except Exception:
+            pass
         name = material.name if hasattr( material, 'name' ) else material.getName()
+        # Blender uniquifies datablock names, so a second copy of char_body comes back
+        # as char_body.001 and stops matching anything in the mrl. Strip the suffix.
         if len( name ) > 4 and name[-4] == '.' and name[-3:].isdigit():
             name = name[:-4]
+        # exact mode makes one Blender material per vertex layout (name@IASkinTB4wt,
+        # name@IASkinTB1wt@noshadow); they're all the same MRL material
+        if '@' in name:
+            name = name.split( '@', 1 )[0]
         return name
 
     def _getMaterialTexturePath( self, material, inputName, default ):
