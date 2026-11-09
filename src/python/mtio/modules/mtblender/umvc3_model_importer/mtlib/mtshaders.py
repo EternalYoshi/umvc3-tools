@@ -1,16 +1,3 @@
-'''The game's own shaders: root.spkg and UserShaderPackage.mfx.
-
-Picks the exact vertex and pixel shader UMvC3 runs for a material, the same way the game
-does (sShader2::hashStateMaskBlock -> root.spkg lookup), and works out what every vertex
-shader output means so the pixel shader can be fed from Blender.
-
-    db = ShaderDB.get(native_dir)          # cached per folder
-    prog = db.program_for(material_overrides, ia_name, renderer)   # -> Program or None
-    prog.ps, prog.vs                        # sm3.Shader objects
-    db.vs_semantics(prog.vs_index)          # {('texcoord', n): [meaning per component]}
-
-Reverse engineering notes live in RE/ShaderPipeline/notes/spkg-shader-findings.md.
-'''
 import os
 import csv
 import struct
@@ -24,11 +11,6 @@ try:
     import numpy as np
 except ImportError:
     np = None
-
-
-# ----------------------------------------------------------------------------------------
-# MFX: technique / function / texture object ids and the shader key
-# ----------------------------------------------------------------------------------------
 
 class MFX:
     def __init__( self, path ):
@@ -96,7 +78,6 @@ class MFX:
         return out
 
     def key( self, tech, pas, states, outenc, overrides ):
-        '''overrides: {object index: u32 value}. states: up to 4 state ids (IA first).'''
         T = self.default_table()
         for i, v in overrides.items():
             T[i] = v
@@ -140,19 +121,63 @@ def _fnv( words ):
             h = ( ( h * 0x01000193 ) & 0xffffffff ) ^ ( ( w >> sh ) & 0xff )
     return h
 
-
-# texture format byte -> texture type in the key (MtTexture::resolveFormatAndUsage)
 TEX_TYPE = { 0x0F: 0xA, 0x19: 5, 0x1E: 1, 0x1F: 3, 0x20: 8, 0x23: 8, 0x21: 9, 0x24: 9, 0x25: 0xF,
              0x29: 0x14, 0x2A: 0x15, 0x2B: 0x16, 0x2F: 0x18 }
+SPKG_DIR = ( 'sa', 'DX9_64' )
+RSHADERPACKAGE_TYPE = 0x02358E1A
 
+def read_arc_entries( path ):
+    '''Yields (name, type hash, data) for each file in an MT Framework v7 .arc (UMvC3 PC).'''
+    with open( path, 'rb' ) as f:
+        d = f.read()
+    assert d[:4] == b'ARC\0', 'not an arc'
+    version, count = struct.unpack_from( '<HH', d, 4 )
+    for i in range( count ):
+        o = 8 + i * 80
+        name = d[o:o + 64].split( b'\0' )[0].decode( 'ascii', 'replace' )
+        typ, csize, usize, off = struct.unpack_from( '<4I', d, o + 64 )
+        size = usize & 0x1FFFFFFF
+        chunk = d[off:off + csize]
+        try:
+            data = zlib.decompress( chunk )
+        except zlib.error:
+            data = chunk    # stored
+        yield name, typ, data[:size] if size else data
 
-# ----------------------------------------------------------------------------------------
-# SPK: programs and shader bytecode
-# ----------------------------------------------------------------------------------------
+def find_spkg( native_dir ):
+    d = os.path.join( native_dir, *SPKG_DIR )
+    for name in ( 'root.spkg', 'root.arc' ):
+        p = os.path.join( d, name )
+        if os.path.isfile( p ):
+            return p
+    return None
+
+def load_spkg( native_dir ):
+    p = find_spkg( native_dir )
+    if p is None:
+        raise FileNotFoundError( 'no root.spkg or root.arc in ' + os.path.join( native_dir, *SPKG_DIR ) )
+    if p.lower().endswith( '.spkg' ):
+        with open( p, 'rb' ) as f:
+            return f.read()
+    fallback = None
+    for name, typ, data in read_arc_entries( p ):
+        if data[:4] != b'SPK\0':
+            continue
+        if typ == RSHADERPACKAGE_TYPE and name.replace( '/', '\\' ).lower().endswith( '\\root' ):
+            return data
+        fallback = fallback or data
+    if fallback is None:
+        raise ValueError( 'no shader package in ' + p )
+    return fallback
+
 
 class SPK:
     def __init__( self, path ):
-        s = self.s = open( path, 'rb' ).read()
+        if isinstance( path, ( bytes, bytearray ) ):
+            s = self.s = bytes( path )
+        else:
+            with open( path, 'rb' ) as f:
+                s = self.s = f.read()
         assert s[:4] == b'SPK\0', 'not an spkg'
         self.mfx_hash = struct.unpack_from( '<I', s, 4 )[0]
         self.nprog, self.nvs, self.nps = struct.unpack_from( '<3H', s, 0xa )
@@ -199,11 +224,6 @@ class SPK:
     def ps( self, i ):
         return self._shader( self.ps_tab, i )
 
-
-# ----------------------------------------------------------------------------------------
-# cbuffer layouts (member names for CTAB rows)
-# ----------------------------------------------------------------------------------------
-
 _LAYOUT = None
 
 def cbuffer_layouts():
@@ -233,11 +253,6 @@ def ctab_location( name ):
                 return cb, off
     return None, None
 
-
-# ----------------------------------------------------------------------------------------
-# vertex shader output meanings
-# ----------------------------------------------------------------------------------------
-
 def _decls( sh ):
     ins, outs = {}, {}
     for t, a in sh.insts:
@@ -256,9 +271,6 @@ def ps_inputs( sh ):
     return out
 
 def classify_vs( sh, seed=1 ):
-    '''Run the VS with identity skinning on random vertices and name each output component:
-    pos.x, normal.y, occlusion, tangent.z, binormal.x / -binormal.x, view.x, eyevec.x,
-    eyedist, "const <v>", or "lin <coef>*<input>.<c> ..." for affine functions of raw inputs.'''
     N = 96
     b = sm3ir.build( sh )
     ins, outs = _decls( sh )
@@ -354,11 +366,6 @@ def classify_vs( sh, seed=1 ):
         res[( usage, ui )] = comps
     return res
 
-
-# ----------------------------------------------------------------------------------------
-# the database
-# ----------------------------------------------------------------------------------------
-
 class Program:
     def __init__( self, db, key, record, vs_index, ps_index ):
         self.db = db
@@ -389,7 +396,6 @@ class ShaderDB:
 
     @classmethod
     def find_native( cls, *hints ):
-        '''Finds the nativePCx64 folder from a path inside it (or its game folder).'''
         cands = []
         for h in hints:
             if not h:
@@ -403,7 +409,7 @@ class ShaderDB:
                     break
                 p = parent
         for c in cands:
-            if os.path.isfile( os.path.join( c, 'sa', 'DX9_64', 'root.spkg' ) ) and \
+            if find_spkg( c ) is not None and \
                os.path.isfile( os.path.join( c, 'UserShader', 'UserShaderPackage.mfx' ) ):
                 return c
         return None
@@ -418,11 +424,10 @@ class ShaderDB:
     def __init__( self, native_dir ):
         self.native_dir = native_dir
         self.mfx = MFX( os.path.join( native_dir, 'UserShader', 'UserShaderPackage.mfx' ) )
-        self.spk = SPK( os.path.join( native_dir, 'sa', 'DX9_64', 'root.spkg' ) )
+        self.spk = SPK( load_spkg( native_dir ) )
         self._sem = {}
 
     def overrides_by_name( self, named ):
-        '''{slot name: impl name or ("tex", type) or raw int} -> {object index: value}'''
         out = {}
         for slot, v in named.items():
             if slot not in self.mfx.idx:
@@ -450,3 +455,4 @@ class ShaderDB:
         if vs_index not in self._sem:
             self._sem[vs_index] = classify_vs( self.spk.vs( vs_index ), seed=vs_index + 1 )
         return self._sem[vs_index]
+ 

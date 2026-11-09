@@ -249,30 +249,65 @@ class ModelImporterBase(ABC):
                     j += 1
         return editorFaceArray
 
+    def _textureSearchRoots( self, context ):
+        '''The game's nativePCx64 folder, for textures the extracted arc doesn't have
+        (UserShader toon ramps and other shared textures).'''
+        if getattr( self, '_texRoots', None ) is None:
+            mip = context.scene.sub_scene_properties
+            hints = [ context.scene.get( 'mt_game_native_dir', '' ), getattr( mip, 'game_native_dir', '' ) or '' ]
+            try:
+                # Blender relative paths ("//...")
+                import bpy
+                hints = [ bpy.path.abspath( h ) if h else h for h in hints ]
+            except Exception:
+                pass
+            native = util.findNativeDir( *hints, self.basePath )
+            self._texRoots = [ native ] if native else []
+            if native:
+                self.logger.info( f'shared textures fall back to {native}' )
+        return self._texRoots
+
+    @staticmethod
+    def _textureCachePath( textureTEXPath ):
+        import tempfile, hashlib
+        d = os.path.join( tempfile.gettempdir(), 'umvc3_tex_cache' )
+        os.makedirs( d, exist_ok=True )
+        h = hashlib.md5( os.path.abspath( textureTEXPath ).lower().encode( 'utf-8' ) ).hexdigest()[:8]
+        name = os.path.splitext( os.path.basename( textureTEXPath ) )[0]
+        return os.path.join( d, f'{name}_{h}.dds' )
+
     def loadTextureSlot( self, material, slot, context ):
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
         texturePath = material.getTextureAssignedToSlot( slot )
         if texturePath in [None, '']:
             return None
         else:
-            textureTEXPath, textureDDSPath = util.resolveTexturePath( self.basePath, texturePath )
-            
-            if mip.convert_tex_to_dds and textureTEXPath != None and os.path.exists( textureTEXPath ):
+            textureTEXPath, textureDDSPath = util.resolveTexturePath( self.basePath, texturePath, self._textureSearchRoots( context ) )
+
+            if textureTEXPath is None or not os.path.exists( textureTEXPath ):
+                # the shader reads a missing texture as black, so say which one
+                self.logger.warn( f'texture for {slot} not found: {texturePath} (extract it, or set the Game Folder)' )
+                return None
+
+            if mip.convert_tex_to_dds:
                 self.logger.info( f'converting TEX file {textureTEXPath} to DDS {textureDDSPath}' )
-                
+
                 try:
                     texture = rTextureData()
                     texture.loadBinaryFile( textureTEXPath )
                     textureDDS = texture.toDDS()
                     try:
                         textureDDS.saveFile( textureDDSPath )
-                    except PermissionError:
-                        self.logger.error( f"failed to save TEX file to DDS, make sure you have write permissions to: {textureDDSPath}" )
+                    except OSError:
+                        # game folder not writable (Program Files): keep the dds in a cache
+                        textureDDSPath = self._textureCachePath( textureTEXPath )
+                        self.logger.info( f'no write access next to the TEX, using {textureDDSPath}' )
+                        textureDDS.saveFile( textureDDSPath )
                 except Exception as e:
                     self.logger.error( 'failed to convert TEX file to DDS' )
                     self.logger.exception( e )
                     return None
-                        
+
                 image = self.createTexture( textureDDSPath )
                 fmt = texture.header.fmt.surfaceFmt
                 # BM_HQ (42) on mvc3 pc is YUV packed into DXT5, the game decodes it in the
@@ -480,6 +515,7 @@ class ModelImporterBase(ABC):
         self.filePath = modFilePath
         self.baseName = os.path.basename( modFilePath ).split('.')[0]
         self.basePath = os.path.dirname( modFilePath )
+        self._texRoots = None
         # self.metadata = self.loadMetadata( mip.metadata_file )
         #Chose to make a dedicated bool for disabling Metadata.
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties

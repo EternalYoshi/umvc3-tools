@@ -206,47 +206,58 @@ class ResourcePath:
                 pass
 
     
-def resolveTexturePath( basePath, texturePath ):
-    # load TEX and convert to DDS before loading the model
-    
+def findNativeDir( *hints ):
+    for h in hints:
+        if not h:
+            continue
+        p = os.path.abspath( h )
+        for _ in range( 12 ):
+            for c in ( p, os.path.join( p, 'nativePCx64' ) ):
+                if os.path.basename( os.path.normpath( c ) ).lower() == 'nativepcx64' and os.path.isdir( c ):
+                    return c
+            parent = os.path.dirname( p )
+            if parent == p:
+                break
+            p = parent
+    return None
+
+def resolveTexturePath( basePath, texturePath, extraRoots=() ):
     # normalize texture path
     texturePathNrm = texturePath.replace( '\\', '/' )
-    
-    texturePathParts = texturePathNrm.split( '/' )
+    texturePathParts = [ p for p in texturePathNrm.split( '/' ) if p ]
     firstSegment = texturePathParts[0] if len( texturePathParts ) > 1 else None
 
-    texturePathRoot = None
+    roots = []
     if firstSegment:
         probe = os.path.realpath( basePath )
         for _ in range( 12 ):
             if os.path.isdir( os.path.join( probe, firstSegment ) ):
-                texturePathRoot = probe
+                roots.append( probe )
                 break
             parent = os.path.dirname( probe )
             if parent == probe:
                 break
             probe = parent
+    # the old segment counting behaviour
+    relTexturePathRoot = '../' * ( len( texturePathParts ) - 1 )
+    roots.append( os.path.realpath( os.path.join( basePath, relTexturePathRoot ) ) )
+    for r in extraRoots or ():
+        if r and os.path.isdir( r ):
+            roots.append( os.path.realpath( r ) )
 
-    if texturePathRoot is None:
-        # nothing matched, fall back to the old segment counting behaviour
-        relTexturePathRoot = ''
-        for i in range( 1, len( texturePathParts )):
-            relTexturePathRoot += '../'
-        texturePathRoot = os.path.realpath( os.path.join( basePath, relTexturePathRoot ) )
-    
-    # find the real texture path
-    realTexturePath = os.path.join( texturePathRoot, *texturePathParts )
-    textureTEXPath, _ = getExtractedResourceFilePath( realTexturePath, '241f5deb', 'tex' )
+    for root in roots:
+        textureTEXPath, _ = getExtractedResourceFilePath( os.path.join( root, *texturePathParts ), '241f5deb', 'tex' )
+        if textureTEXPath is not None:
+            return ( textureTEXPath, os.path.splitext( textureTEXPath )[0] + '.dds' )
+
+    # failsafe: try to look for the tex files in the current model directory in case we don't find it
+    # won't work for all textures
+    textureTEXPath, _ = getExtractedResourceFilePath( basePath + '/' + os.path.basename( texturePathNrm ), '241f5deb', 'tex' )
+    textureDDSPath = os.path.join( basePath, os.path.basename( texturePathNrm ) + ".dds" )
     if textureTEXPath == None:
-        # failsafe: try to look for the tex files in the current model directory in case we don't find it 
-        # won't work for all textures
-        textureTEXPath, _ = getExtractedResourceFilePath( basePath + '/' + os.path.basename( texturePath ), '241f5deb', 'tex' )
-        textureDDSPath =  os.path.join( basePath, os.path.basename( texturePath ) + ".dds" ) # failsafe
-        if textureTEXPath == None:
-            print( 'WARNING: TEX file not found: {}'.format( texturePath ) )  
+        print( 'WARNING: TEX file not found: {}'.format( texturePath ) )
     else:
         textureDDSPath = os.path.splitext( textureTEXPath )[0] + '.dds'
-        
     return ( textureTEXPath, textureDDSPath )
 
 Y_TO_Z_UP_MATRIX = nclCreateMat44((NclVec4((1,  0,  0, 0)),  # x=x
