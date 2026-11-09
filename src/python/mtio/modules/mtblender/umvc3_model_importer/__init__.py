@@ -74,8 +74,6 @@ def registerAddonModules():
     properties.register()
     from .modules import custom_skeleton
     custom_skeleton.register_props()
-    from .modules import custom_materials
-    custom_materials.register_props()
     try:
         from .modules import mt_exact
         mt_exact.register_handlers()
@@ -108,11 +106,6 @@ def unregisterAddonModules():
     except Exception:
         pass
 
-    try:
-        from .modules import custom_materials
-        custom_materials.unregister_props()
-    except Exception:
-        pass
     for owner, prop in ((bpy.types.Object, 'umvc3_skeleton_map'), (bpy.types.Scene, 'umvc3_skeleton')):
         try:
             delattr(owner, prop)

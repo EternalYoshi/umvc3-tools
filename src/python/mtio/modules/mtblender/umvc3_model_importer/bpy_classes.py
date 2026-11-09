@@ -30,7 +30,6 @@ classes = [
     modules.cam_import.SUB_OP_cam_export,
     modules.cam_import.SUB_OP_cam_follow,
     *modules.custom_skeleton.CLASSES,
-    *modules.custom_materials.CLASSES,
     modules.model_export.SUB_PT_Model_Export,
     modules.model_export.SUB_PT_MOD_OT_export,
     modules.model_export.SUB_OP_MOD_ExportModelPath,
