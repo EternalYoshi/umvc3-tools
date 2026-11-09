@@ -855,10 +855,7 @@ class UMVC3SkeletonSettings(bpy.types.PropertyGroup):
         name='Use the rig\'s animations', default=False,
         description='If the bone limit forces merges, merge the bones that move the mesh least in the animations '
                     'already on this armature (slower)')
-    delete_reference: bpy.props.BoolProperty(
-        name='Delete the reference afterwards', default=True,
-        description='Remove the reference rig and its meshes once converted, so they are not exported by accident')
-    show: bpy.props.BoolVectorProperty(size=4, default=(True, False, False, False))
+    show: bpy.props.BoolVectorProperty(size=5, default=(True, False, False, False, False))
 
 
 def _slots(arm):
@@ -981,7 +978,8 @@ class SUB_OP_SkeletonConvert(bpy.types.Operator):
         # the list now shows the new names
         for s in arm.umvc3_skeleton_map:
             s.bone = 'jnt_%d' % s.sid if ('jnt_%d' % s.sid) in arm.data.bones else ''
-        if st.delete_reference and ref is not None:
+        # the reference has done its job; gone, it can't be exported by mistake
+        if ref is not None:
             delete_reference(ref, keep=arm)
         _mode(arm, 'OBJECT')
         self.report({'INFO'}, log[-1].strip() if log else 'converted')
@@ -1015,8 +1013,8 @@ class SUB_PT_CustomSkeleton(bpy.types.Panel):
         layout.separator()
         col = layout.column(align=True)
         col.label(text='2. Which bone is which')
-        row = col.row(align=True)
-        row.prop(st, 'preset', text='')
+        row = col.row()
+        row.scale_y = 1.2
         row.operator(SUB_OP_SkeletonDetect.bl_idname, icon='VIEWZOOM')
         if not len(arm.umvc3_skeleton_map):
             return
@@ -1025,32 +1023,35 @@ class SUB_PT_CustomSkeleton(bpy.types.Panel):
         row.operator(SUB_OP_SkeletonSwapSides.bl_idname, icon='ARROW_LEFTRIGHT')
         slots = _slots(arm)
         req = required_ids()
-        for k, sec in enumerate(SECTIONS):
-            box = layout.box()
-            ids = [(i, label) for s, i, label, r in SLOTS if s == sec]
+
+        def section(parent, sec, k):
+            box = parent.box()
+            ids = [(i, label) for s_, i, label, r in SLOTS if s_ == sec]
             done = sum(1 for i, _ in ids for j in ((i, MIRROR[i]) if i in MIRROR else (i,)) if slots.get(j) and slots[j].bone)
             want = sum(2 if i in MIRROR else 1 for i, _ in ids)
+            missing = any(j in req and not (slots.get(j) and slots[j].bone)
+                          for i, _ in ids for j in ((i, MIRROR[i]) if i in MIRROR else (i,)))
             row = box.row()
+            row.alert = missing
             row.prop(st, 'show', index=k, text='%s  (%d of %d set)' % (sec, done, want),
                      icon='TRIA_DOWN' if st.show[k] else 'TRIA_RIGHT', emboss=False)
             if not st.show[k]:
-                continue
+                return
             grid = box.column(align=True)
             for i, label in ids:
                 for j, side in (((i, 'L'), (MIRROR[i], 'R')) if i in MIRROR else ((i, ''),)):
-                    s = slots.get(j)
-                    if s is None:
+                    s_ = slots.get(j)
+                    if s_ is None:
                         continue
                     row = grid.row(align=True)
-                    row.alert = j in req and not s.bone
-                    row.prop_search(s, 'bone', arm.data, 'bones', text=('%s %s' % (side, label)).strip())
+                    row.alert = j in req and not s_.bone
+                    row.prop_search(s_, 'bone', arm.data, 'bones', text=('%s %s' % (side, label)).strip())
+        section(layout, 'Body', 0)
+        section(layout, 'Fingers', 1)
+
         layout.separator()
         col = layout.column(align=True)
         col.label(text='3. Convert')
-        col.prop(st, 'keep_prefixes')
-        col.prop(st, 'scale_to_ref')
-        col.prop(st, 'use_actions')
-        col.prop(st, 'delete_reference')
         errors, warnings = check_mapping(arm, st.reference, _mapping(arm))
         for e in errors[:6]:
             r = col.row()
@@ -1062,6 +1063,20 @@ class SUB_PT_CustomSkeleton(bpy.types.Panel):
         row.scale_y = 1.5
         row.enabled = not errors
         row.operator(SUB_OP_SkeletonConvert.bl_idname, icon='ARMATURE_DATA')
+
+        # everything a first conversion doesn't need
+        box = layout.box()
+        box.prop(st, 'show', index=3, text='Advanced', icon='TRIA_DOWN' if st.show[3] else 'TRIA_RIGHT', emboss=False)
+        if st.show[3]:
+            col = box.column(align=True)
+            row = col.row(align=True)
+            row.prop(st, 'preset', text='Names')
+            col.prop(st, 'scale_to_ref')
+            col.prop(st, 'keep_prefixes')
+            col.prop(st, 'use_actions')
+            box.label(text='Optional joints (twist helpers, face):')
+            section(box, 'Helpers', 2)
+            section(box, 'Face', 4)
 
 
 CLASSES = [UMVC3SkeletonSlot, UMVC3SkeletonSettings, SUB_OP_SkeletonDetect, SUB_OP_SkeletonSwapSides,
