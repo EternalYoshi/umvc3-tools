@@ -1,6 +1,8 @@
 This branch has extra features for the Blender version of the plugin. The main export is not complete, but there's support for character animations and Cameras as well.
 Original site facing README below.
 
+TODO: Get rid of Copilot/Intellisense autocomplete docstrings and comments.
+
 ==========================================================================================================
 
 # umvc3-tools
