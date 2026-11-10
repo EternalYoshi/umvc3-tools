@@ -11,7 +11,7 @@ TODO: Take a look at camera stuff to bridge in game discrepancies
 
 TODO: Stages
 
-==========================================================================================================
+============================================================================
 
 # umvc3-tools
 Ultimate Marvel vs Capcom 3 tools &amp; research
