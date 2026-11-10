@@ -1,0 +1,9 @@
+TODO: Get rid of Copilot/Intellisense autocomplete docstrings and comments.
+
+TODO: Move the Blender importer to its own repo possibly.
+
+TODO: Consider possibility of full rewrite/refactor to avoid technical debt.
+
+TODO: Take a look at camera stuff to bridge in game discrepancies
+
+TODO: Stages
