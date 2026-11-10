@@ -1,7 +1,11 @@
-This branch has extra features for the Blender version of the plugin. The main export is not complete, but there's support for character animations and Cameras as well.
+This branch has extra features for the Blender version of the plugin.
 Original site facing README below.
 
 TODO: Get rid of Copilot/Intellisense autocomplete docstrings and comments.
+TODO: Move the Blender importer to its own repo possibly.
+TODO: Consider possibility of full rewrite/refactor to avoid technical debt.
+TODO: Take a look at camera stuff to bridge in game discrepancies
+TODO: Stages
 
 ==========================================================================================================
 
