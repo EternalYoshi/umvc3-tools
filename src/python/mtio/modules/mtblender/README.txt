@@ -1,5 +1,5 @@
 Had to rewrite this from scratch to support a wider range of blender versions.
-This is now targeting versions 3.4 -4.0, while being developed on 4.0.
+This is now targeting versions 4.0-4.3. Support for 3.6 is discontinued.
 
 Before using this, make sure you click the "Install Dependencies" button.
 
