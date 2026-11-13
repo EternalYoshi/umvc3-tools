@@ -1176,18 +1176,12 @@ def _id_of(text):
     return int(m.group(1)) if m else None
 
 
-def read_bone_csv(path, arm):
-    """A bone list as .csv: bone name, UMVC3 id (9 or jnt_9), optionally the symmetrical
-    opposite. A header row is optional; with one, BoneName/SourceName/Name, ID and any
-    Symmetrical/Mirror column are recognised, so the converter's own bone list and the
-    3ds Max MT attribute CSV both load. Returns ({id: bone} for the shared joints,
-    {bone: [id, symmetry]} for the rest, notes)."""
+def read_bone_rows(path, names):
     import csv
     with open(path, newline='', encoding='utf-8-sig') as f:
         rows = [r for r in csv.reader(f) if r and any(x.strip() for x in r)]
     if not rows:
         raise RuntimeError('the .csv is empty')
-    names = set(arm.data.bones.keys())
     first = [x.strip() for x in rows[0]]
     if len(first) > 1 and _id_of(first[1]) is None:
         hdr = [x.lower().replace(' ', '').replace('_', '') for x in first]
@@ -1199,7 +1193,7 @@ def read_bone_csv(path, arm):
         bone_cols = bone_cols or [0]
     else:
         bone_cols, id_col, sym_col = [0], 1, (2 if len(first) > 2 else None)
-    mapping, forced, notes = {}, {}, []
+    out, notes = [], []
     for r in rows:
         cells = [x.strip() for x in r]
         bone = next((cells[c] for c in bone_cols if c < len(cells) and cells[c] in names), None)
@@ -1210,7 +1204,14 @@ def read_bone_csv(path, arm):
         if i is None or not (1 <= i <= MAX_ID):
             notes.append('%s: id %s is not 1-%d' % (bone, cells[id_col] if id_col < len(cells) else '?', MAX_ID))
             continue
-        sym = cells[sym_col] if sym_col is not None and sym_col < len(cells) else ''
+        out.append((bone, i, cells[sym_col] if sym_col is not None and sym_col < len(cells) else ''))
+    return out, notes
+
+
+def read_bone_csv(path, arm):
+    rows, notes = read_bone_rows(path, set(arm.data.bones.keys()))
+    mapping, forced = {}, {}
+    for bone, i, sym in rows:
         if i in STANDARD:
             mapping[i] = bone
         else:

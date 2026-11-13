@@ -1,3 +1,4 @@
+import re
 ''' 
 Metadata classes used for retrieving user-specified info about a model.
 Used to give names to object ids and store online-safe data about a model
@@ -39,7 +40,7 @@ class JointMetadata:
     
     @staticmethod
     def isDefaultName( name ):
-        return name.startswith( JointMetadata.DEFAULT_NAME_PREFIX )
+        return re.match( re.escape( JointMetadata.DEFAULT_NAME_PREFIX ) + r'\d+$', name ) is not None
     
     @staticmethod
     def getIdFromName( name ):
@@ -62,7 +63,7 @@ class GroupMetadata:
     
     @staticmethod
     def isDefaultName( name ):
-        return name.startswith( GroupMetadata.DEFAULT_NAME_PREFIX )
+        return re.match( re.escape( GroupMetadata.DEFAULT_NAME_PREFIX ) + r'\d+$', name ) is not None
     
     @staticmethod
     def getIdFromName( name ):
@@ -94,7 +95,7 @@ class PrimitiveMetadata:
     
     @staticmethod
     def isDefaultName( name ):
-        return name.startswith( PrimitiveMetadata.DEFAULT_NAME_PREFIX )
+        return re.match( re.escape( PrimitiveMetadata.DEFAULT_NAME_PREFIX ) + r'\d+$', name ) is not None
     
     @staticmethod
     def getIdFromName( name ):

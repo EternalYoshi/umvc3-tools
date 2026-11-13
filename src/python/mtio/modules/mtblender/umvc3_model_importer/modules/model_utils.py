@@ -33,6 +33,14 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
+def _draw_joint_tools(layout):
+    box = layout.box()
+    box.label(text='Edited UMVC3 skeleton (keeps ID and Symmetry)')
+    col = box.column(align=True)
+    col.operator('sub.mod_op_clear_joint_index_data', icon='TRASH')
+    col.operator('sub.mod_op_apply_joint_csv', icon='IMPORT')
+
+
 class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'    
@@ -57,6 +65,7 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             row.label(text="Select a primitive, joint, or group object first.")
         elif obj.type == 'ARMATURE' and context.mode != "POSE":
             row.label(text="Bones have to be selected in pose mode.")
+            _draw_joint_tools(layout)
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')
@@ -85,6 +94,7 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')
+            _draw_joint_tools(layout)
 
             if len(bpy.context.selected_pose_bones) > 1:
                 layout.separator()
@@ -121,6 +131,134 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
         layout.separator()
         row = layout.row(align=True)        
         row.operator('sub.mod_op_select_objects_by_material', text = 'Select Objects By Material')         
+
+JOINT_REBUILT_KEYS = ('parentIndex', 'symmetryIndex', 'length', 'offsetX', 'offsetY', 'offsetZ', 'index')
+
+
+def _duplicate_joint_ids(arm):
+    by_id = {}
+    for pb in arm.pose.bones:
+        v = str(pb.get('id', '')).strip()
+        if v.isdigit():
+            by_id.setdefault(int(v), []).append(pb.name)
+    return {i: n for i, n in by_id.items() if len(n) > 1}
+
+
+def _report_ids(op, arm, msg):
+    dup = _duplicate_joint_ids(arm)
+    if dup:
+        text = ', '.join('%d (%s)' % (i, ' and '.join(n[:3])) for i, n in sorted(dup.items())[:6])
+        op.report({'WARNING'}, '%s. Shared ids, fix before export: %s' % (msg, text))
+    else:
+        op.report({'INFO'}, msg)
+
+
+class SUB_OP_CLEAR_JOINT_INDEX_DATA(bpy.types.Operator):
+    bl_idname = 'sub.mod_op_clear_joint_index_data'
+    bl_label = 'Clear Index Data (keep ID and Symmetry)'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'ARMATURE'
+
+    def execute(self, context):
+        arm = context.active_object
+        bones = list(context.selected_pose_bones or []) if context.mode == 'POSE' else []
+        if not bones:
+            bones = list(arm.pose.bones)
+        cleared = 0
+        no_id = []
+        for pb in bones:
+            hit = False
+            for k in JOINT_REBUILT_KEYS:
+                if k in pb.keys():
+                    del pb[k]
+                    hit = True
+            cleared += hit
+            if str(pb.get('id', '')).strip() in ('', '0'):
+                no_id.append(pb.name)
+        msg = 'cleared index data on %d of %d bones' % (cleared, len(bones))
+        if no_id:
+            msg += '; no id on %s' % ', '.join(no_id[:5]) + ('...' if len(no_id) > 5 else '')
+        _report_ids(self, arm, msg)
+        return {'FINISHED'}
+
+
+class SUB_OP_APPLY_JOINT_CSV(bpy.types.Operator, ImportHelper):
+    bl_idname = 'sub.mod_op_apply_joint_csv'
+    bl_label = 'Apply Bone CSV (ID and Symmetry)'
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = '.csv'
+    filter_glob: StringProperty(default='*.csv', options={'HIDDEN'})
+    rename: BoolProperty(name='Rename bones to jnt_<id>', default=True,
+                         description='The animation exporter finds bones by these names')
+    clear_index: BoolProperty(name='Clear their index data too', default=True,
+                              description='Remove stale order, length and offset data so the exporter rebuilds it')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'ARMATURE'
+
+    def execute(self, context):
+        from . import custom_skeleton as CS
+        arm = context.active_object
+        mode = context.mode
+        if mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        try:
+            rows, notes = CS.read_bone_rows(self.filepath, set(arm.data.bones.keys()))
+        except Exception as e:
+            self.report({'ERROR'}, 'could not read the .csv: %s' % e)
+            return {'CANCELLED'}
+        ids = {b: i for b, i, _ in rows}
+        by_id = {i: b for b, i in ids.items()}
+        for pb in arm.pose.bones:          # bones the csv doesn't list keep the ids they have
+            v = str(pb.get('id', '')).strip()
+            if pb.name not in ids and v.isdigit():
+                by_id.setdefault(int(v), pb.name)
+        sym = {}
+        for b, i, s in rows:
+            t = s if s in arm.data.bones else by_id.get(CS._id_of(s)) if s else None
+            if s and t is None:
+                notes.append('%s: symmetrical opposite %s is not on the rig' % (b, s))
+            sym[b] = t or b                   # none given: the bone is its own opposite
+        # a pair named only from one side points back
+        for b, t in list(sym.items()):
+            if t != b and sym.get(t) == t:
+                sym[t] = b
+        final = {b: b for b in arm.data.bones.keys()}
+        if self.rename:
+            want = {b: 'jnt_%d' % i for b, i in ids.items()}
+            taken = {n for n in final if n not in want and n in want.values()}
+            for n in taken:                   # an unlisted bone already called jnt_N steps aside
+                final[n] = n + '_old'
+            final.update(want)
+            for b in arm.data.bones:
+                b.name = '__csv_tmp_' + b.name
+            for b in arm.data.bones:
+                old = b.name[len('__csv_tmp_'):]
+                b.name = final[old]
+            if taken:
+                notes.append('renamed %s out of the way' % ', '.join(sorted(taken)))
+        for b, i in ids.items():
+            pb = arm.pose.bones[final[b]]
+            pb['id'] = str(i)
+            pb['symmetryName'] = final[sym[b]]
+            if self.clear_index:
+                for k in JOINT_REBUILT_KEYS:
+                    if k in pb.keys():
+                        del pb[k]
+        for n in notes:
+            print('Apply Bone CSV: ' + n)
+        msg = 'set id and symmetry on %d bones' % len(ids)
+        if notes:
+            msg += '; %d notes in the console' % len(notes)
+        if mode == 'POSE':
+            bpy.ops.object.mode_set(mode='POSE')
+        _report_ids(self, arm, msg)
+        return {'FINISHED'}
+
 
 class SUB_OP_ADD_MT_ATTRIBUTES(bpy.types.Operator):
     bl_idname = 'sub.mod_op_add_mt_attributes'
