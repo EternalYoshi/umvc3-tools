@@ -1,4 +1,4 @@
-This is made to work with Blender versions starting from 3.4 and ending with 4.0.
+This is made to work with Blender versions starting from 4.0 and ending with 4.3.
 
 Before using this, you will want to run the following command in Blender's Console in the Scripting Tab:
 
