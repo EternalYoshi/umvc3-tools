@@ -398,8 +398,7 @@ class imMaterialInfo(object):
             return True
         return 'Alpha' in self.blendState or 'Blend' in self.blendState
 
-    # Raster states seen in retail mrls. RSMesh is the default and culls backfaces.
-    # RSMeshCN is 'cull none', used on the two sided pieces (Dante's coat tails).
+    # RSMesh (default) culls backfaces, RSMeshCN is cull none (Dante's coat tails)
     DOUBLE_SIDED_RASTER_STATES = ( 'RSMeshCN', 'RSMeshNoCull', 'RSNoCull' )
 
     def isDoubleSided( self ):
@@ -422,8 +421,7 @@ class imMaterialInfo(object):
         except Exception:
             return None
 
-        # which channel the shader is allowed to offset. secondary wins when both are
-        # flagged, since that is where the scrolling blend map lives.
+        # the channel the shader offsets, secondary wins (the scrolling blend map is there)
         channel = 'UVPrimary'
         for flag, name in ( ( 'FUVTransformSecondary', 'UVSecondary' ),
                             ( 'FUVTransformUnique',    'UVUnique' ),

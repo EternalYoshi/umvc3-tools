@@ -47,9 +47,8 @@ class BlenderCustomAttributeSetProxy(EditorCustomAttributeSetProxy):
         super().__init__(attribs)
 
     def _resolve(self):
-        # Object mode Bone props aren't reachable from a script, so the importer
-        # parks the MT attributes on the matching Pose bone. Both the read and the
-        # write side have to go through here or they land on different datablocks.
+        # the importer keeps MT attributes on the pose bone, so reads and writes on a
+        # Bone go to the matching pose bone
         ctx = self._ctx
         if ctx is None:
             return None
@@ -68,9 +67,7 @@ class BlenderCustomAttributeSetProxy(EditorCustomAttributeSetProxy):
         try:
             return ctx[name]
         except (KeyError, TypeError):
-            # missing key, not an error. callers treat None as "not set" and fall
-            # back to defaults. raising KeyError here also broke getattr(_, _, None)
-            # since getattr only swallows AttributeError.
+            # missing key, callers treat None as not set
             return None
 
     def setCustomAttribute(self, name: str, value: Any):
@@ -112,8 +109,6 @@ class BlenderNodeProxy(EditorNodeProxy):
     def getParent(self):
         parent = getattr(self.node, 'parent', None)
         if parent is None:
-            # was wrapping None in a proxy, so `node.getParent() != None` was true
-            # for every unparented object and the caller would blow up downstream
             return None
         return BlenderNodeProxy(parent)
 
@@ -286,8 +281,7 @@ class BlenderPlugin(EditorPluginBase):
         obj = bpy.data.objects.get(name)
         if obj is not None:
             return BlenderNodeProxy(obj)
-        # Bones are not objects, so an object only lookup meant every symmetry
-        # lookup came back None and the exported skeleton had no symmetry at all.
+        # symmetry lookups name bones, not objects
         for armature in bpy.data.armatures:
             bone = armature.bones.get(name)
             if bone is not None:

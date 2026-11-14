@@ -48,7 +48,7 @@ def _drop_scene_props():
         pass
 
 
-# True once the classes that need glm et al. are registered.
+# set once the classes that need glm etc. are registered
 _modulesRegistered = False
 
 

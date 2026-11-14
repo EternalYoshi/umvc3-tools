@@ -89,8 +89,7 @@ class SUB_PT_OT_ADD_REMOVE_MT_STUFF(Panel):
             #Checks which pose bone is selected, if any at all.
             PoseBones = obj.pose.bones
             ChosenBone = None
-            # the cleanup operator works on every selected MESH, so it is useful while
-            # the armature is active too. it was only reachable with a mesh selected.
+            # the cleanup works on every selected mesh, so offer it in pose mode too
             layout.separator()
             row = layout.row(align=True)
             row.operator('sub.mod_op_cleanup_vertex_groups', text = 'Cleanup Vertex Groups on Selected Meshes')

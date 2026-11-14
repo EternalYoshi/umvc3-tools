@@ -22,7 +22,7 @@ def _tryParseInt(input, base=10, default=None):
         return default
     
 def _tryParseEnvelopes(raw):
-    # The importer stashes each primitive's envelopes as json on the node.
+    # envelopes the importer saved on the node as json
     if raw is None or raw == '':
         return None
     try:
@@ -236,8 +236,7 @@ class ModelExporterBase(ABC):
             data.id = _tryParseInt(attribs.id)
             symmetryName = attribs.symmetryName
             data.symmetryNode = self.plugin.getNodeByName( symmetryName ) if symmetryName else None
-            # auto detect if symmetry node is not found, or the name is set to 'auto',
-            # or there was never a symmetry name on the bone to begin with
+            # auto detect when the symmetry node isn't found, or the name is 'auto' or missing
             if data.symmetryNode == None and symmetryName in ( "auto", None ):
                 data.symmetryNode = self.detectSymmetryNode( node.getName() )
             data.field03 = _tryParseInt(attribs.field03)
@@ -266,7 +265,7 @@ class ModelExporterBase(ABC):
         return data
             
     def getMaterialCustomAttributeData( self, material ) -> MaterialCustomAttributeData:
-        # Read back the MT material state the importer stashed on the editor material.
+        # MT material state the importer saved on the material
         data = MaterialCustomAttributeData()
         data.type = None
         data.blendState = None
@@ -286,7 +285,7 @@ class ModelExporterBase(ABC):
         return data
 
     def applyMaterialCustomAttributeData( self, materialInstance, data: MaterialCustomAttributeData ):
-        # Overlay the preserved state onto a freshly built material instance.
+        # apply the saved state to a new material instance
         if materialInstance == None or data == None:
             return materialInstance
         if data.type != None: materialInstance.type = data.type
@@ -346,13 +345,11 @@ class ModelExporterBase(ABC):
 
         parentNode = node.getParent() if node.node.parent is not None else None
         if parentNode is not None and self.shouldExportBoneNode( parentNode ):
-            # both sides have to have the tail fix removed before they're comparable,
-            # using the parent's raw matrix_local here leaves the fix baked into the
-            # relative transform
+            # use the parent's world matrix too, so the tail fix cancels out
             parentWorldMtx = self.getBoneWorldMtx( parentNode )
             localMtx = nclMultiply( worldMtx, nclInverse( parentWorldMtx ) )
         else:
-            # root bone, so undo the up axis turn the importer applied to it
+            # root bone, undo the importer's up axis turn
             localMtx = worldMtx
             if self.config.exportBakeScale:
                 localMtx = self.transformMtxNoScale * localMtx
@@ -360,7 +357,7 @@ class ModelExporterBase(ABC):
                 localMtx = self.getImportSpaceInverse() * localMtx
 
         if self.config.exportBakeScale:
-            # importer did localMtx[3] *= scale, so take it back out of the translation
+            # undo the importer's localMtx[3] *= scale
             scale = self.config.exportScale if self.config.exportScale else 1.0
             invScale = 1.0 / scale
             localMtx[3] = NclVec4( localMtx[3][0] * invScale,
@@ -466,8 +463,7 @@ class ModelExporterBase(ABC):
         self.jointToEditorNodeMap[joint] = editorNode
         self.model.joints.append( joint )
         self.jointIdxByName[ joint.name ] = len( self.model.joints ) - 1
-        # without this every recursive parent/symmetry lookup resolves to None and
-        # the exported skeleton comes out completely flat
+        # needed by the parent / symmetry lookups
         return joint
 
     def iterBoneNodes( self ):
@@ -569,9 +565,7 @@ class ModelExporterBase(ABC):
                 self.processBone( mip, editorNode )
                 self.processedNodes.add( editorNode )
 
-            # bones without an id (no MT attribute, not jnt_N, not in the metadata) used to
-            # get len(joints) + 1, which could collide with a bone that has that id for real.
-            # Give them the lowest ids nothing else uses.
+            # bones with no id (no MT attribute, not jnt_N, not in the metadata) get the lowest free ids
             if self._autoIdJoints:
                 auto = set( id( j ) for j in self._autoIdJoints )
                 taken = set( j.id for j in self.model.joints if id( j ) not in auto )
@@ -580,8 +574,7 @@ class ModelExporterBase(ABC):
                     joint.id = next( free, 255 )
                     self.logger.info( f'bone {joint.name} has no id, using {joint.id}' )
 
-            # resolve symmetry references once every joint exists, otherwise forward
-            # references to bones we haven't walked yet come back as None
+            # resolve symmetry after every joint exists so forward references work
             for joint in list( self.model.joints ):
                 editorNode = self.jointToEditorNodeMap.get( joint )
                 if editorNode is None:
@@ -766,11 +759,8 @@ class ModelExporterBase(ABC):
                 self.logger.debug( "optimizing mesh" )
                 prim.makeIndexed( self.progressCallback )
 
-                # Tangents have to come after indexing. Generated before, every triangle
-                # corner is still its own vertex, so each one gets a flat per face tangent
-                # and no two corners agree, which stops makeIndexed merging anything. Ryu
-                # went from 30k vertices to 99k. Doing it here accumulates across shared
-                # vertices, which is both smooth and what retail stores.
+                # tangents after indexing, so they accumulate over shared vertices like retail.
+                # before it every corner gets a flat tangent and nothing merges
                 if prim.hasUvs():
                     self.logger.debug( "generating tangents" )
                     prim.generateTangents( self.progressCallback )
@@ -780,7 +770,7 @@ class ModelExporterBase(ABC):
                 self.model.primitives.append( prim )
         
     def buildEnvelopeFromData( self, data, index ):
-        # Rebuild an imEnvelope from what the importer stashed on the node.
+        # imEnvelope from the data the importer saved on the node
         try:
             joint = None
             jointId = data.get('jointId')
@@ -820,10 +810,7 @@ class ModelExporterBase(ABC):
         meshNodes = list(self.iterMeshNodes())
         for i, editorNode in enumerate( meshNodes ):
             self.updateProgress('Processing meshes', i, len( meshNodes ) )
-            # processMesh builds the working sets and hands them to generatePrimitives,
-            # which is what actually appends imPrimitives to the model. Appending the
-            # editor node here instead put proxies into model.primitives and toBinaryModel
-            # had no chance.
+            # processMesh appends the imPrimitives through generatePrimitives
             self.processMesh( editorNode )
             self.processedNodes.add( editorNode )
             
@@ -932,19 +919,9 @@ class ModelExporterBase(ABC):
             mrlExportPath = self.outPath.basePath + '/' + self.outPath.baseName + '.mrl'
             
         self.updateProgress( 'Writing files', 50 )
-        # DEPRECATED: mrl generation
-        # if self.config.exportGenerateMrl:
-        #     mrlYmlExportPath = mrlExportPath + ".yml"
-        #     self.logger.info(f"writing generated mrl yml to {mrlYmlExportPath}")
-        #     self.mrl.updateTextureList()
-        #     try:
-        #         self.mrl.saveYamlFile( mrlYmlExportPath )
-        #     except PermissionError as e:
-        #         raise RuntimeError( f"Unable to save mrl yml file, make sure you have write permissions to {mrlYmlExportPath}" )
           
         self.updateProgress( 'Writing files', 75 )  
-        # Kept for the existing-yml path. The generation half of the old condition
-        # is gone, so this only fires when the user supplied an mrl yml.
+        # only when the user gave an mrl yml
         if self.config.exportExistingMrlYml and self.mrl != None:
             self.logger.info(f'exporting mrl to {mrlExportPath}')
             try:
@@ -980,16 +957,8 @@ class ModelExporterBase(ABC):
         else:
             self.ref = None
         self.path = mip.export_modelpath
-        # DEPRECATED: extracted archive directory. Its only consumer was the mrl
-        # texture path prefix, and the raise below blocked exports over a value
-        # nothing reads. outPath only needs rootPath to populate relBasePath.
-        # self.rootpath = mip.extracted_archive_directory
         self.rootpath = ''
         self.outPath = util.ResourcePath(path)
-        # if self.outPath.relBasePath == None:
-        #     raise RuntimeError(
-        # "The model export path is not in a subfolder of the specified extracted archive directory.\n"+
-        # "If your extracted archive directory is C:\\Export, the model export path should start with C:\\Export.")
         
         self.metadata = ModelMetadata()
         self.mrl = None
@@ -1008,23 +977,13 @@ class ModelExporterBase(ABC):
             self.ref = rModelData()
             self.ref.read( NclBitStream( util.loadIntoByteArray( mip.export_reference_model_file ) ) )
             
-        # Loading an existing mrl yml is kept. It is a straight yml to binary mrl
-        # conversion, independent of generation and of the extracted archive path.
+        # existing mrl yml, converted straight to binary
         if mip.existing_mrl_yml != '' and os.path.exists( mip.existing_mrl_yml ):
             self.logger.info(f'loading mrl yml from {mip.existing_mrl_yml}')
             self.mrl = imMaterialLib()
             self.mrl.loadYamlFile( mip.existing_mrl_yml )
-        # DEPRECATED: mrl generation from the blender scene
-        # elif self.config.exportGenerateMrl:
-        #     self.logger.info(f'generating new mrl')
-        #     self.mrl = imMaterialLib()
             
         self.logger.debug('creating output directories')
-        # DEPRECATED: don't create the extracted archive directory, that's the folder
-        # the user extracted the game into. The second call was also wrong, it made a
-        # directory named after the .mod file rather than its parent.
-        # if not os.path.exists( mip.extracted_archive_directory ):
-        #     os.makedirs( mip.extracted_archive_directory )
         if not os.path.exists( os.path.dirname( mip.export_modelpath ) ):
             os.makedirs( os.path.dirname( mip.export_modelpath ) )
 

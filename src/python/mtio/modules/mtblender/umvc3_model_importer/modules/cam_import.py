@@ -1,6 +1,4 @@
-"""
-Camera importer for the UMVC3 Model Importer addon.
-"""
+"""UMVC3 camera (.lmcm / .m3c) import and export."""
 
 import math
 import os
@@ -23,7 +21,7 @@ Q_ZUP = mathutils.Quaternion((math.cos(math.radians(45)),
                               math.sin(math.radians(45)), 0.0, 0.0))
  
  
-# ----------------------------------------------------------------- file io
+# file io
  
 class Cam(object):
     __slots__ = ("slot", "frames", "floats", "source", "eye", "target",
@@ -123,7 +121,7 @@ def slot_label(i):
     return "Slot %d" % i
  
  
-# ----------------------------------------------------------------- helpers
+# helpers
  
 def iter_fcurves(holder):
     ad = getattr(holder, "animation_data", None)
@@ -196,7 +194,7 @@ def to_quat(q, zup):
     return (Q_ZUP @ bq) if zup else bq
  
  
-# ----------------------------------------------------------------- build
+# build
  
 def build_camera(context, cam, scale, zup, fov_axis, make_target,
                  extend_range, name_prefix=""):
@@ -263,7 +261,7 @@ def build_camera(context, cam, scale, zup, fov_axis, make_target,
     return obj
  
  
-# ----------------------------------------------------------------- ui
+# ui
  
 class SUB_PT_Cam_Import(Panel):
     bl_space_type = "VIEW_3D"

@@ -196,7 +196,7 @@ def structural_fill(arm, mapping):
     return m
 
 
-# ----------------------------------------------------------------------------- structure
+# structure
 
 def structural_detect(arm):
     """Work out which bone is which from the rig's shape alone, no names.
@@ -340,7 +340,7 @@ def structural_detect(arm):
     out = {}
     for sgn in (1, -1):
         s = sides[sgn]
-        # ---- leg: thigh, shin, foot, toe
+        # leg: thigh, shin, foot, toe
         L = main_chain(s['leg'])
         hip_h = height(L[0]) - ground
         fi = next((i for i in range(1, len(L)) if height(L[i]) - ground < 0.25 * hip_h), None)
@@ -358,7 +358,7 @@ def structural_detect(arm):
                     best = (abs(r - 0.5), n)
             if best:
                 leg['shin'] = best[1]
-        # ---- arm: clavicle, upper arm, forearm, hand
+        # arm: clavicle, upper arm, forearm, hand
         A = main_chain(s['arm'])
         hand = None
         for i in range(2, len(A)):
@@ -1169,7 +1169,7 @@ def convert(arm, ref_arm, mapping, keep_prefixes=(), reparent=None, actions=None
 
 
 
-# ----------------------------------------------------------------------------- csv
+# csv
 
 def _id_of(text):
     m = re.match(r'\s*(?:jnt_)?(\d+)\s*$', text or '')

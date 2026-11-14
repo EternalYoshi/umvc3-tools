@@ -1,20 +1,14 @@
-'''Exact MT materials: the game's own pixel shader, compiled to Blender nodes.
+'''Exact MT materials: the game's pixel shader compiled to Blender nodes.
 
-For each material (and vertex layout) this picks the program UMvC3 itself would run, the
-same way the game does (MRL flags and textures plus the renderer's own overrides, hashed
-into the root.spkg key), and turns that pixel shader into Math nodes instruction by
-instruction (mtlib.sm3ir). The vertex shader is not run; instead each of its outputs is
-identified numerically (mtshaders.classify_vs) and fed from the matching Blender value
-(world normal, position, tangent frame, view vector, uv), converted to the game's axes.
+Picks the program the game would run for each material and vertex layout (MRL flags,
+textures and renderer overrides hashed into the root.spkg key) and converts it to Math
+nodes with mtlib.sm3ir. The vertex shader isn't run, its outputs are matched with
+mtshaders.classify_vs and fed from Blender values in MT axes.
 
-Constants come from three places:
-  - the MRL cbuffers ($Globals, CBMaterial, CBHalfLambert, ...)          -> literal values
-  - everything the renderer sets (lights, rim, ambient, cut-in, HDR ...) -> scene custom
-    properties "mtc_<ctab name>_<row>", 4 floats each, read with View Layer attribute nodes.
-    Defaults below, real values from a FrameCapture of the game, lights from Blender.
-
-The output is oC0 as the game writes it (gamma space), turned into linear with the exact
-sRGB curve so Standard view shows the game's numbers.
+MRL cbuffers become literal values. Renderer constants are scene props
+"mtc_<ctab name>_<row>" (4 floats), defaults below or loaded from a FrameCapture.
+oC0 comes out in gamma space and goes through the sRGB curve, so Standard view shows
+the game's values.
 '''
 import os
 import json
@@ -24,9 +18,7 @@ import mathutils
 
 from ..mtlib import mtshaders, sm3ir
 
-# ----------------------------------------------------------------------------------------
 # renderer side values (Training Room; replaced by capture data when available)
-# ----------------------------------------------------------------------------------------
 
 # what the renderer set for Ryu in the Training Room (umvc3_framecapture, 2026-10-17)
 RENDERER_DEFAULTS = {
@@ -71,9 +63,7 @@ def ensure_renderer_props( scene, values=None, overwrite=False ):
                 scene[key] = [ float( x ) for x in tuple( v )[:4] ] + [ 0.0 ] * ( 4 - len( tuple( v )[:4] ) )
 
 
-# ----------------------------------------------------------------------------------------
 # picking the program
-# ----------------------------------------------------------------------------------------
 
 SKINNING = {
     'IASkinTB1wt': ( 'FSkinning1Weight', 'FSkinningPF1Weight' ),
@@ -157,9 +147,7 @@ def pick_program( db, material, ia, images, scene, outenc=1, tech=None, receive=
     return None, None
 
 
-# ----------------------------------------------------------------------------------------
 # node building
-# ----------------------------------------------------------------------------------------
 
 def _is_sock( x ):
     return isinstance( x, bpy.types.NodeSocket )
@@ -185,7 +173,7 @@ class Bind:
         self.sem = db.vs_semantics( prog.vs_index )
         self.y = 0
 
-    # -- small helpers
+    # small helpers
     def node( self, kind, **props ):
         nd = self.n.new( kind )
         for k, v in props.items():
@@ -250,7 +238,7 @@ class Bind:
             self.cache[key] = [ x, y, z, a.outputs['Alpha'] ]
         return self.cache[key]
 
-    # -- constants
+    # constants
     def ctab_entry( self, reg, ctab=None ):
         for c in ( ctab if ctab is not None else self.ctab ):
             if c['set'] == 2 and c['idx'] <= reg < c['idx'] + c['cnt']:
@@ -274,7 +262,7 @@ class Bind:
             self.scene[prop] = [ 0.0, 0.0, 0.0, 0.0 ]
         return self.scene_vec4( prop )[comp]
 
-    # -- interpolators
+    # interpolators
     def geometry( self ):
         if 'geo' not in self.cache:
             self.cache['geo'] = self.node( 'ShaderNodeNewGeometry' )
@@ -481,7 +469,7 @@ class Bind:
                 self.cache[key] = 0.0
         return self.cache[key]
 
-    # -- textures
+    # textures
     def sampler_name( self, s ):
         for c in self.ctab:
             if c['set'] == 3 and c['idx'] == s:
@@ -631,10 +619,8 @@ def _srgb_decode( b, sock ):
     return mix.outputs[0]
 
 
-# ----------------------------------------------------------------------------------------
 # legible materials: the compiled shader lives in a node group per game program, the
 # material shows the MRL's textures as image nodes and its constants as named sockets
-# ----------------------------------------------------------------------------------------
 
 SHADER_GROUP_VERSION = 2
 MATERIAL_CBUFFERS_EDITABLE = ( '$Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
@@ -1078,9 +1064,7 @@ def _uses_hdr( prog ):
     return any( c['name'].startswith( 'CBHDRFactor' ) for c in ( prog.ps.ctab['consts'] if prog.ps.ctab else [] ) )
 
 
-# ----------------------------------------------------------------------------------------
 # lights -> renderer constants
-# ----------------------------------------------------------------------------------------
 
 def blender_to_mt( v ):
     return ( v[0], v[2], -v[1] )
@@ -1188,11 +1172,9 @@ def link_point_light( scene ):
             [ ( 'a', 'SCENE', scene, '%s["mt_falloff_start"]' % base ), ( 'b', 'SCENE', scene, '%s["mt_falloff_end"]' % base ) ] + us )
 
 
-# ----------------------------------------------------------------------------------------
 # outline: TMaterialOutline, an inverted hull the game draws for every character mesh
 # (and the IASkinBridge meshes, which exist only for it). Its VS pushes each vertex out
 # along the normal by clip w * CBOutlineFilter[9].w, so the width stays the same on screen.
-# ----------------------------------------------------------------------------------------
 
 RENDERER_DEFAULTS.update( {
     'fOutlineChannelMask': [ ( 1.0, 0.0, 0.0, 0.0 ) ],
@@ -1227,10 +1209,9 @@ def outline_group():
     s = _gn_socket( g, 'Keep Mesh', 'NodeSocketBool', 'INPUT' ); s.default_value = True
     # 1: weld normals across seams instead of the game's per vertex normals (not the game look)
     s = _gn_socket( g, 'Weld Normals', 'NodeSocketFloat', 'INPUT' ); s.default_value = 0.0
-    # The game draws the hull with a stencil test against the character it outlines, so the
-    # line never shows over the character's own body, only around it. Blender has no
-    # stencil; pushing the hull back along the view rays (same screen position) hides it
-    # behind the body the same way. Too far and it also hides behind a floor close behind.
+    # the game stencil tests the hull against the character so it only shows around it.
+    # Blender has no stencil, so push the hull back along the view rays instead (too far
+    # and a floor right behind hides it too)
     s = _gn_socket( g, 'Push Back', 'NodeSocketFloat', 'INPUT' ); s.default_value = 60.0
     _gn_socket( g, 'Geometry', 'NodeSocketGeometry', 'OUTPUT' )
     N, L = g.nodes, g.links
@@ -1466,9 +1447,7 @@ def refresh_outlines( context ):
 
 
 
-# ----------------------------------------------------------------------------------------
 # renderer constants from a FrameCapture (umvc3_framecapture.asi + decode_capture.py)
-# ----------------------------------------------------------------------------------------
 
 MATERIAL_CBUFFERS = ( '$Globals', 'Globals', 'CBMaterial', 'CBHalfLambert', 'CBToon2', 'CBDiffuseColorCorect' )
 
@@ -1523,12 +1502,9 @@ def sync_lighting_from_constants( scene ):
         scene['mt_ambient'] = tuple( amb[:3] )
 
 
-# ----------------------------------------------------------------------------------------
 # primitive groups
-# ----------------------------------------------------------------------------------------
-# Character models carry every face expression as its own copy of the head, one primitive
-# group each (70, 71, 73, 75 on Ryu and Wesker). The game draws one of them; 70 is the
-# default face. Group 127 holds a placeholder the game never draws.
+# each face expression is a copy of the head in its own group (70, 71, 73, 75 on Ryu
+# and Wesker), the game draws one, 70 by default. Group 127 is a placeholder
 FACE_GROUPS = range( 70, 80 )
 UNUSED_GROUPS = ( 127, )
 
@@ -1584,9 +1560,8 @@ def _camera_watch( scene, depsgraph=None ):
     except Exception:
         pass
 
-# The push back only lines up seen through the scene camera; from any other viewport angle
-# the pushed hull shows as a black copy of the character behind it. So it only applies
-# while a render runs, the viewport draws the hull in place.
+# the push back only lines up through the scene camera, so it's only on while
+# rendering and the viewport draws the hull in place
 _rendering = { 'on': False }
 
 def _push_value( scene ):

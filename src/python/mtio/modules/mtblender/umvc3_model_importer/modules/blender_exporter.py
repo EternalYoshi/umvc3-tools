@@ -69,9 +69,8 @@ class BlenderModelExporter(ModelExporterBase):
         self.logger.debug( f'updateSubProgress({what},{value},{count})')
 
     def _attribSetOrNone( self, ctx, markers ):
-        # Hand back a proxy only if the datablock actually carries MT attributes. A mesh
-        # built from scratch in Blender has none, and the exporter has fallback paths for
-        # that case which never ran while this always returned a proxy.
+        # only return a proxy when the datablock has MT attributes, so meshes made in
+        # Blender go through the exporter's fallback paths
         if ctx is None:
             return None
         proxy = BlenderCustomAttributeSetProxy(ctx)
@@ -163,9 +162,7 @@ class BlenderModelExporter(ModelExporterBase):
         matrix.transpose()
         return matrix
 
-    # ------------------------------------------------------------------
     # materials
-    # ------------------------------------------------------------------
 
     # the importer creates these by name, in this order
     UV_LAYER_SLOTS = ( 'UVPrimary', 'UVSecondary', 'UVUnique', 'UVExtend' )
@@ -181,8 +178,7 @@ class BlenderModelExporter(ModelExporterBase):
         except Exception:
             pass
         name = material.name if hasattr( material, 'name' ) else material.getName()
-        # Blender uniquifies datablock names, so a second copy of char_body comes back
-        # as char_body.001 and stops matching anything in the mrl. Strip the suffix.
+        # strip Blender's .001 suffix so the name still matches the mrl
         if len( name ) > 4 and name[-4] == '.' and name[-3:].isdigit():
             name = name[:-4]
         # exact mode makes one Blender material per vertex layout (name@IASkinTB4wt,
@@ -233,48 +229,14 @@ class BlenderModelExporter(ModelExporterBase):
         # whatever the importer recorded off the original mrl entry
         preserved = self.getMaterialCustomAttributeData( material )
 
-        # DEPRECATED: mrl generation. Everything below built the mrl entry for this
-        # material. The attribute read above is kept because it costs nothing and
-        # documents what the importer preserved.
+        # mrl generation is disabled
         return
 
-        # if not self.config.exportGenerateMrl or self.mrl is None:
-        # return
-
-        # # an existing mrl already holds the real thing, don't clobber it
-        # for existing in self.mrl.materials:
-        # if existing.name == name:
-        # self.applyMaterialCustomAttributeData( existing, preserved )
-        # return
-
-        # preset = self.config.exportMaterialPreset
-        # if preserved.type != None:
-        # # prefer the material type the model actually shipped with
-        # candidate = preserved.type.replace( 'nDraw::', '' )
-        # for template in imMaterialInfo.TEMPLATE_MATERIALS:
-        # if template.replace( ' ', '' ).endswith( candidate ):
-        # preset = template
-        # break
-
-        # materialInstance = imMaterialInfo.createFromTemplate(
-        # preset,
-        # name,
-        # normalMap=self._getMaterialTexturePath( material, 'Normal', imMaterialInfo.DEFAULT_NORMAL_MAP ),
-        # albedoMap=self._getMaterialTexturePath( material, 'Base Color', imMaterialInfo.DEFAULT_ALBEDO_MAP ),
-        # specularMap=self._getMaterialTexturePath( material, 'Specular IOR Level', imMaterialInfo.DEFAULT_SPECULAR_MAP ),
-        # )
-
-        # self.applyMaterialCustomAttributeData( materialInstance, preserved )
-        # self.copyUsedDefaultTexturesToOutput( materialInstance )
-        # self.mrl.materials.append( materialInstance )
-
-    # ------------------------------------------------------------------
     # meshes
-    # ------------------------------------------------------------------
 
     def _getArmatureObj( self ):
-        # bones export in armature space, so meshes have to as well or moving the
-        # armature in object mode silently shifts the mesh away from the skeleton
+        # meshes export in armature space like the bones, so moving the armature
+        # in object mode doesn't shift them off the skeleton
         if getattr( self, '_armatureObj', None ) is not None:
             return self._armatureObj
         selected = bpy.context.selected_objects
@@ -295,17 +257,14 @@ class BlenderModelExporter(ModelExporterBase):
         return arm.matrix_world.inverted_safe() @ obj.matrix_world
 
     def _evaluateMesh( self, obj ):
-        # Snapshot with modifiers applied, minus the armature. Leaving the armature on
-        # bakes the current pose into the vertices and the mod comes out permanently posed.
-        # The game outline (geometry nodes) is a render effect, not geometry to write.
+        # evaluate with modifiers but without the armature (it would bake the pose in)
+        # or the outline, which is render only
         suppressed = []
         for mod in obj.modifiers:
             if ( mod.type == 'ARMATURE' or mod.name == 'MT Outline' ) and mod.show_viewport:
                 mod.show_viewport = False
                 suppressed.append( mod )
-        # Hidden objects aren't evaluated, so to_mesh() could hand back an empty mesh. The
-        # import hides every face expression but one (and the outline only primitives) with
-        # the eye toggle, and those still belong in the .mod.
+        # hidden objects aren't evaluated, and the hidden face expressions still go in the .mod
         unhid = obj.hide_viewport
         if unhid:
             obj.hide_viewport = False
@@ -350,9 +309,7 @@ class BlenderModelExporter(ModelExporterBase):
         return None
 
     def _getColorLayer( self, mesh ):
-        # written by the importer for the stage formats that carry baked colour.
-        # POINT domain so it indexes by vertex; CORNER is handled too in case the
-        # user made their own.
+        # baked colour from the stage formats, POINT from the importer, CORNER if user made
         for name in ( 'VertexColor', 'Color', 'Col' ):
             layer = mesh.color_attributes.get( name ) if hasattr( mesh, 'color_attributes' ) else None
             if layer is not None:
@@ -373,8 +330,7 @@ class BlenderModelExporter(ModelExporterBase):
         return layers
 
     def _getBoneIndexByVertexGroup( self, obj ):
-        # vertex group index -> joint index. Groups that don't name a bone in the
-        # skeleton get dropped rather than silently mapped onto the root.
+        # vertex group index -> joint index, groups that don't name a bone are dropped
         mapping = dict()
         if self.jointIdxByName is None:
             return mapping

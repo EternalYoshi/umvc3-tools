@@ -54,17 +54,14 @@ def calcBounds( vertices ) -> imModelBounds:
         if v[2] > vmax[2]: vmax[2] = v[2]
 
     if count == 0:
-        # nothing came through, so the sentinels are still in place and would
-        # give a radius of about 1.7e8. hand back an empty bounds instead.
+        # no points, return empty bounds
         return imModelBounds()
     
     center = NclVec3()
     center[0] = ( vmin[0] + vmax[0] ) / 2
     center[1] = ( vmin[1] + vmax[1] ) / 2
     center[2] = ( vmin[2] + vmax[2] ) / 2  
-    # Radius is the distance to the furthest point, not to the corner of the bounding
-    # box. Retail stores the tight value and the corner over estimates it badly on
-    # anything that isn't a cube. Ryu came out at 128.72 against a stored 105.41.
+    # radius to the furthest point like retail, not to the box corner
     radius = 0.0
     for v in points:
         d = calcDistance( center, v )

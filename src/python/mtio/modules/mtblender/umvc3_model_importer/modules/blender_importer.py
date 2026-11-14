@@ -19,8 +19,7 @@ def assertBlenderMode(expectedMode:str):
         return expectedMode == 'OBJECT'
 
 class BlenderModelImporter(ModelImporterBase):
-    # Stored inverted (1 - occlusion) so anything without the attribute, a new mesh or
-    # verts joined in from elsewhere, reads 0 and stays fully lit instead of going black.
+    # stored as 1 - occlusion so a mesh without the attribute reads 0 (fully lit)
     OCCLUSION_ATTRIBUTE = 'mt_ao_darken'
 
     def __init__(self):
@@ -137,8 +136,7 @@ class BlenderModelImporter(ModelImporterBase):
         
         mesh = bpy.data.meshes.new(mesh_name+'.mesh')
         obj = bpy.data.objects.new(mesh_name, mesh)
-        # collected so the outline pass knows exactly what this import made, rather
-        # than guessing from the selection
+        # what this import made, for the outline pass
         if not hasattr( self, 'importedMeshObjects' ):
             self.importedMeshObjects = []
         self.importedMeshObjects.append( obj )
@@ -165,9 +163,8 @@ class BlenderModelImporter(ModelImporterBase):
         setUVMap(mesh, faces, vertexData.uvExtendArray, 'UVExtend')
         setUVMap(mesh, faces, vertexData.uvUniqueArray, 'UVUnique')
 
-        # Stage formats (IANonSkinBC/BCA/TBNL) carry baked per vertex colour and alpha.
-        # Store it as a POINT domain byte colour so the exporter can read it straight
-        # back per vertex, no corner mapping needed.
+        # stage formats (IANonSkinBC/BCA/TBNL) have baked vertex colour and alpha,
+        # stored on the POINT domain so the exporter reads it back per vertex
         if len( vertexData.colorArray ) == len( verts ):
             try:
                 layer = mesh.color_attributes.new( name='VertexColor', type='BYTE_COLOR', domain='POINT' )
@@ -176,9 +173,8 @@ class BlenderModelImporter(ModelImporterBase):
             except Exception as e:
                 self.logger.debug( 'could not create vertex colour layer: ' + str( e ) )
 
-        # Per vertex occlusion. The character shaders multiply the lit diffuse by it, so
-        # it goes on the mesh as a float attribute the MT Character group reads, and the
-        # exporter writes it back instead of a flat 1.
+        # vertex occlusion, the character shaders multiply the lit diffuse by it.
+        # MT Character reads it and the exporter writes it back
         occ = vertexData.occlusionArray or []
         if len( occ ) == len( verts ):
             try:
@@ -219,9 +215,8 @@ class BlenderModelImporter(ModelImporterBase):
             for face in mesh.polygons:
                 face.use_smooth = True  # loop normals have effect only if smooth shading ?
 
-            # the game's outline vertex shader pushes each vertex along its own stored normal;
-            # keep it per vertex for the outline hull (Blender's normals follow the winding,
-            # which the outline-only bridge strips don't keep consistent)
+            # the outline VS pushes each vertex along its stored normal, keep it for the
+            # hull (the bridge strips don't have consistent winding)
             try:
                 gn = mesh.attributes.new( name='mt_game_normal', type='FLOAT_VECTOR', domain='POINT' )
                 gn.data.foreach_set( 'vector', [ c for n in vertexData.normalArray for c in tuple( n )[:3] ] )
@@ -250,9 +245,8 @@ class BlenderModelImporter(ModelImporterBase):
             if hasattr( mesh, 'use_auto_smooth' ):
                 mesh.use_auto_smooth = True
 
-        # The game's tangent frame, expressed in Blender's own (MikkTSpace) frame per face
-        # corner. Both frames follow the surface when the mesh deforms, so the shader can
-        # rebuild the game tangent from these coefficients in any pose (exact in the bind pose).
+        # game tangent frame per corner, relative to Blender's MikkTSpace frame, so the
+        # shader can rebuild it in any pose
         self._storeTangentFrame( mesh )
         
         obj['mt_group'] = int( primitive.indices.getGroupId() )
@@ -479,9 +473,8 @@ class BlenderModelImporter(ModelImporterBase):
     
     # Material functions
     def _attachUVChannel( self, bpy_material, nodes, tex_node, material, slot ):
-        '''The mrl says which uv channel feeds each texture slot. Without an explicit
-        UV Map node blender falls back to whichever layer happens to be active, which
-        is wrong for anything not using the primary channel.'''
+        '''UV Map node for the channel the mrl gives this slot. Without one Blender
+        uses the active layer.'''
         try:
             channel = material.getUVChannelForSlot( slot )
         except Exception:
@@ -544,15 +537,7 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.debug( 'could not set up uv scroll: ' + str( e ) )
 
 
-    # ------------------------------------------------------------------
-    # MT shading
-    # ------------------------------------------------------------------
-    #
-    # Rebuilt from the game's compiled shaders (root.spkg) and shader database
-    # (UserShaderPackage.mfx), see modules/mt_shading.py. The mrl flags pick the same
-    # building blocks the game's shader system does, the cbuffer values go onto sockets
-    # named after the real shader constants, and the lighting comes from scene properties
-    # that a stage's sdl can fill in. Works in Eevee and Cycles.
+    # MT shading, see modules/mt_shading.py
 
     def _wantsToonShading( self, context ):
         try:
@@ -604,8 +589,7 @@ class BlenderModelImporter(ModelImporterBase):
             self.logger.debug( f'uv for {slot}: {e}' )
 
     def _mtRamp( self, nodes, links, image, label, coords, uv, x, y ):
-        '''Samples a toon ramp once per colour channel, each at its own u (they only differ
-        when coloured scene lights hit the surface) and puts r, g and b back together.'''
+        '''Samples a toon ramp per colour channel at its own u and recombines r, g, b.'''
         comb = nodes.new( 'ShaderNodeCombineColor' )
         comb.location = ( x + 300, y )
         for i, suffix in enumerate( ( '', ' G', ' B' ) ):
@@ -619,9 +603,7 @@ class BlenderModelImporter(ModelImporterBase):
             links.new( sep.outputs[i], comb.inputs[i] )
         return comb.outputs['Color']
 
-    # ------------------------------------------------------------------------------------
-    # exact mode: the game's own pixel shaders compiled to nodes (see mt_exact)
-    # ------------------------------------------------------------------------------------
+    # exact mode (see mt_exact)
     DEFAULT_GAME_DIRS = (
         r'C:\Program Files (x86)\Steam\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
         r'C:\Steam\steamapps\common\ULTIMATE MARVEL VS. CAPCOM 3',
@@ -687,8 +669,7 @@ class BlenderModelImporter(ModelImporterBase):
         if 'mt_outenc' not in scene.keys():
             scene['mt_outenc'] = 1
         if not scene.get( 'mt_exact_defaults' ):
-            # first exact import in this scene: start from what the game used and show it in
-            # the rim / ambient panel values that drive those constants
+            # first exact import in this scene: load the game's values into the rim / ambient panel
             try:
                 mt_exact.ensure_renderer_props( scene )
                 mt_exact.sync_lighting_from_constants( scene )
@@ -783,7 +764,7 @@ class BlenderModelImporter(ModelImporterBase):
         geo.location = ( -1300, -300 )
         links.new( geo.outputs['Normal'], coords.inputs['Vertex Normal'] )
 
-        # --- normal: alpha is X, green is Y (flipped for blender's uv), z rebuilt
+        # normal: alpha is X, green is Y (flipped for blender's uv), z rebuilt
         normal_sock = geo.outputs['Normal']
         if images.get( 'tNormalMap' ) is not None:
             tex = self._mtTexNode( nodes, images['tNormalMap'], 'tNormalMap', -1300, -100 )
@@ -818,7 +799,7 @@ class BlenderModelImporter(ModelImporterBase):
         for name in ( 'Lambert Light', 'Light Color', 'Ambient Light', 'World Light', 'Scene Lights' ):
             links.new( coords.outputs[name], G[name] )
 
-        # --- albedo
+        # albedo
         if images.get( 'tAlbedoMap' ) is not None:
             tex = self._mtTexNode( nodes, images['tAlbedoMap'], 'tAlbedoMap', -700, 500 )
             self._mtUV( bpy_material, nodes, tex, material, 'tAlbedoMap' )
@@ -826,7 +807,7 @@ class BlenderModelImporter(ModelImporterBase):
             links.new( tex.outputs['Alpha'], G['Alpha'] )
         setv( 'Use Alpha', 1.0 if material.isAlphaBlended() or variant['alpha_test'] else 0.0 )
 
-        # --- specular mask: green channel, matcap uv for FUVViewNormal
+        # specular mask: green channel, matcap uv for FUVViewNormal
         if images.get( 'tSpecularMap' ) is not None:
             tex = self._mtTexNode( nodes, images['tSpecularMap'], 'tSpecularMap', -700, 250 )
             if variant['spec_view_uv']:
@@ -837,7 +818,7 @@ class BlenderModelImporter(ModelImporterBase):
             links.new( tex.outputs['Color'], sep.inputs['Color'] )
             links.new( sep.outputs['Green'], G['Specular Mask'] )
 
-        # --- toon ramps, sampled at the u the coords group works out
+        # toon ramps, at the u from the coords group
         toon = variant['toon'] and images.get( 'tToonMap' ) is not None
         if toon:
             img = images['tToonMap']
@@ -855,13 +836,13 @@ class BlenderModelImporter(ModelImporterBase):
         else:
             setv( 'Rim', 0.0 )
 
-        # --- sphere map reflection
+        # sphere map
         if images.get( 'tSphereMap' ) is not None:
             tex = self._mtTexNode( nodes, images['tSphereMap'], 'tSphereMap', -250, 0, extend=True )
             links.new( coords.outputs['View UV'], tex.inputs['Vector'] )
             links.new( tex.outputs['Color'], G['Reflection'] )
 
-        # --- vertex occlusion (stored as 1 - occlusion)
+        # vertex occlusion (stored as 1 - occlusion)
         occ = nodes.new( 'ShaderNodeAttribute' )
         occ.attribute_type = 'GEOMETRY'
         occ.attribute_name = self.OCCLUSION_ATTRIBUTE
@@ -871,7 +852,7 @@ class BlenderModelImporter(ModelImporterBase):
         links.new( occ.outputs['Fac'], inv.inputs[1] )
         links.new( inv.outputs[0], G['Occlusion'] )
 
-        # --- mrl values and switches
+        # mrl values and switches
         hl = material.getHalfLambert() or ( 0.5, 0.5 )
         # plain FToonLightCalc samples at N.L, which is the same formula with spread 1
         setv( 'fHalfLambertRevise', hl[0] if variant['half'] else 1.0 )
@@ -888,8 +869,8 @@ class BlenderModelImporter(ModelImporterBase):
         setv( 'Rim', 1.0 if ( variant['rim'] and images.get( 'tToonRevMap' ) is not None ) else 0.0 )
         setv( 'Fresnel', float( variant['fresnel'] ) )
 
-        # cast shadows so scene lights shadow the character (turn shadows off on a light
-        # for the game's look, the game has no self shadowing)
+        # cast shadows from scene lights. The game has no self shadowing, turn shadows
+        # off on the light to match it
         try:
             bpy_material.shadow_method = 'HASHED' if material.isAlphaBlended() or variant['alpha_test'] else 'OPAQUE'
         except Exception:
@@ -898,8 +879,7 @@ class BlenderModelImporter(ModelImporterBase):
         self.logger.info( f'{bpy_material.name}: MT shading ({bpy_material["mt_variant"]})' )
 
     def _applyMaterialState( self, bpy_material, material ):
-        '''Blend and raster state map straight onto blender material settings and
-        matter more visually than people expect.'''
+        '''Mrl blend and raster states -> material settings.'''
         try:
             if material.isDoubleSided():
                 bpy_material.use_backface_culling = False
@@ -1015,9 +995,8 @@ class BlenderModelImporter(ModelImporterBase):
                 # bpy_material.node_tree.links.new(normal_map_tex.outputs["Color"], normal_map_node.inputs["Color"])
                 # bpy_material.node_tree.links.new(normal_map_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
             
-            # A second albedo layered over the first, on its own uv channel.
-            # Dante uses it on two materials. Mixed rather than replacing, which is
-            # the sane default without knowing the shader's exact blend.
+            # second albedo on its own uv channel (two of Dante's materials).
+            # mixed over the first, the exact blend isn't known
             blend_map = self.loadTextureSlot( material, 'tAlbedoBlendMap', context )
             if blend_map and albedo_map:
                 blend_tex = nodes.new( 'ShaderNodeTexImage' )
@@ -1058,8 +1037,7 @@ class BlenderModelImporter(ModelImporterBase):
                         pass
                     toon_nodes[slot] = toon_tex
 
-            # Opt in. With it off an import is plain Principled, which is what rigging and
-            # export work wants: textures as authored, nothing to undo.
+            # opt in, off gives plain Principled for rigging and export work
             mt_shaded = False
             if self._wantsToonShading( context ):
                 try:
@@ -1079,9 +1057,7 @@ class BlenderModelImporter(ModelImporterBase):
                     self.logger.exception( e )
 
             #Light Maps. tOcclusionMap
-            # Specular tint and power go to the MT group as inputs, so the old
-            # principled specular block is gone; it also ran after the group had
-            # already removed that node.
+            # specular tint and power are inputs on the MT group
             self._applyMaterialState( bpy_material, material )
 
             light_map = self.loadTextureSlot(material, "tOcclusionMap", context)
@@ -1094,7 +1070,7 @@ class BlenderModelImporter(ModelImporterBase):
 
                 #Attempt to create a UV Map Node & attach it.
                 light_map_UVMap = nodes.new("ShaderNodeUVMap")
-                # was hardcoded to UVUnique; the mrl names the channel per slot
+                # the mrl names the uv channel per slot
                 try:
                     light_map_UVMap.uv_map = material.getUVChannelForSlot( 'tOcclusionMap' )
                 except Exception:
@@ -1156,18 +1132,9 @@ class BlenderModelImporter(ModelImporterBase):
         # bone = self.armature.bones.get(obj.getName())
         return BlenderCustomAttributeSetProxy(bone)
 
-    # ------------------------------------------------------------------
-    # Ink outline
-    # ------------------------------------------------------------------
-    #
-    # The shader package carries VS_MaterialOutline / PS_MaterialOutline / TMaterialOutline
-    # plus maskOutlineGeometry, so the game draws the contour as a geometry pass rather
-    # than only as a screen space filter. None of the mrls reference outlines, which fits:
-    # it is driven globally by the uOutlineFilter units in the stage sdl.
-    #
-    # The blender equivalent of that pass is an inverted hull. A Solidify modifier pushes
-    # a shell outwards with flipped normals, and the outline material culls backfaces so
-    # only the shell's inside shows, which reads as a line around the silhouette.
+    # Ink outline. The game draws it as a geometry pass (TMaterialOutline), set globally
+    # by uOutlineFilter in the stage sdl, not by the mrls. Here it's an inverted hull:
+    # Solidify with flipped normals and a backface culled material.
 
     OUTLINE_MATERIAL_NAME = 'MT Outline'
 
@@ -1188,7 +1155,7 @@ class BlenderModelImporter(ModelImporterBase):
         emit.inputs['Color'].default_value = ( 0.0, 0.0, 0.0, 1.0 )
         emit.inputs['Strength'].default_value = 1.0
         links.new( emit.outputs['Emission'], out.inputs['Surface'] )
-        # showing only the inside of the shell is what makes it a line and not a blob
+        # only the inside of the shell shows
         mat.use_backface_culling = True
         try:
             mat.shadow_method = 'NONE'
@@ -1216,7 +1183,7 @@ class BlenderModelImporter(ModelImporterBase):
             mod.use_rim = False
             mod.material_offset = slot
             mod.material_offset_rim = slot
-            # a uniform shell reads better than one that thins at tight corners
+            # keep the shell even at tight corners
             mod.use_even_offset = True
             mod.thickness_clamp = 0.0
         except Exception as e:

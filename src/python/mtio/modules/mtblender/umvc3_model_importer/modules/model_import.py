@@ -150,7 +150,7 @@ class SUB_PT_Model_Import_Rendering(Panel):
         row.enabled = mip.import_outline
         row.prop(mip, 'outline_thickness')
 
-        # the scene lighting the MT Character group reads, normally filled from a stage sdl
+        # scene lighting for the MT Character group, usually loaded from a stage sdl
         scene = context.scene
         layout.separator()
         layout.label(text='MT Lighting')
@@ -397,9 +397,6 @@ class SUB_PT_MOD_OT_import(bpy.types.Operator):
         print("Display Bones in Front:\n", mip.bones_in_front)
         
         if '' == mip.input_modelpath:
-            # popupint is commented out in properties.py, so this raises before the
-            # message box the user actually needs to see.
-            # mip.popupint = 0
             ShowMessageBox("You need to choose a model file before anything can be imported.", "Notice")
             print("You need to choose a model file before anything can be imported.")
         else:

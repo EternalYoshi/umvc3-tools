@@ -1,9 +1,6 @@
-'''Writes an .mrl (and its .mrl.yml) from the game shader materials.
-
-Every Blender material carries its full MRL entry (Material.mt_entry, see mt_mrl_props),
-so the export is the imported .mrl with each entry swapped for the edited one. Materials no
-mesh uses go back out unchanged, in their original order. The texture list is rebuilt from
-what the materials reference, keeping the types of the entries that were there.'''
+'''Writes an .mrl (and .mrl.yml) from the game shader materials: the imported .mrl
+with each entry replaced by the material's mt_entry. Unused materials are written back
+unchanged and in order. The texture list is rebuilt from what the materials use.'''
 import os
 import collections
 

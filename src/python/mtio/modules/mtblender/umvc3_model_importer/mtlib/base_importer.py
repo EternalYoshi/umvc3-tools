@@ -27,12 +27,10 @@ class DecodedVertexData:
     weightArray: EditorArrayProxy
     jointArray: EditorArrayProxy
     colorArray: EditorArrayProxy
-    # per vertex occlusion, the 4th component of the normal (or the separate Occlusion
-    # input on TB layouts), decoded the same way the vertex shader reads it. The pixel
-    # shaders multiply the lit diffuse by it, so it's baked AO, not padding.
+    # vertex occlusion (baked AO): normal.w, or the Occlusion input on TB layouts,
+    # decoded like the vertex shader does
     occlusionArray: list = None
-    # game tangents (x, y, z, sign), transformed like the normals. Blender works out its own
-    # tangent frame from the uvs; these let the two be compared / used directly.
+    # game tangents (x, y, z, sign), transformed like the normals
     tangentArray: list = None
 
 @dataclass
@@ -310,8 +308,7 @@ class ModelImporterBase(ABC):
 
                 image = self.createTexture( textureDDSPath )
                 fmt = texture.header.fmt.surfaceFmt
-                # BM_HQ (42) on mvc3 pc is YUV packed into DXT5, the game decodes it in the
-                # shader. Decode it here so blender shows real colours.
+                # BM_HQ (42) is YUV in DXT5, decoded in the game's shader, so decode it here
                 if fmt == rTextureSurfaceFmt.BM_HQ and not target.current.BM_HQ_BC7:
                     image = self.decodeYUVTexture( image, textureDDSPath )
                 self.tagTextureFormat( image, fmt, textureTEXPath )
@@ -591,8 +588,7 @@ class ModelImporterBase(ABC):
         attribs.rasterizerState = material.rasterizerState
         attribs.cmdListFlags = hex( material.cmdListFlags )
         attribs.matFlags = hex( material.matFlags )
-        # needed on export to tell an alpha material from an opaque one; the rest of
-        # the mrl is surfaced as nodes in the shader editor instead of as properties
+        # the export uses this to tell alpha materials from opaque ones
         attribs.blendState = material.blendState
 
         try:
@@ -601,9 +597,8 @@ class ModelImporterBase(ABC):
             self.logger.debug( 'could not mirror mrl commands: ' + str( e ) )
 
     def setMaterialCommandAttributes( self, editorMaterial, material: imMaterialInfo ):
-        '''Mirror the rest of the mrl entry onto the material as custom properties.
-        The numbers that drive shading are inputs on the MT Character group instead;
-        this is the reference copy, so nothing in the file is lost on import.
+        '''Copies the rest of the mrl entry onto the material as custom properties
+        (the shading values are on the MT Character group).
 
             tex_<slot>   texture path
             flag_<name>  feature flag value
@@ -632,7 +627,7 @@ class ModelImporterBase(ABC):
             except Exception:
                 target[ key ] = str( data )
 
-        # animData is binary, so record what is readable rather than dumping bytes
+        # animData is binary, keep only the readable parts
         if material.animData:
             target['animData_bytes'] = len( material.animData )
             anim = material.getUVAnimation()
@@ -669,10 +664,8 @@ class ModelImporterBase(ABC):
         attribs.index = str( self.model.primitives.index( primitive ) )
 
     def serializeEnvelopes( self, envelopeIndex, envelopeCount ):
-        # Stash this primitive's envelopes on the node as json. Envelopes have no scene
-        # representation, so without this the only way to keep them across a round trip
-        # is to hand the exporter the original mod as a reference. Joints go in by id
-        # rather than index so a reordered skeleton still resolves.
+        # envelopes have no scene object, so save them on the node as json for the export.
+        # joints by id so a reordered skeleton still works
         out = []
         for i in range( envelopeIndex, envelopeIndex + envelopeCount ):
             if i < 0 or i >= len( self.model.envelopes ):

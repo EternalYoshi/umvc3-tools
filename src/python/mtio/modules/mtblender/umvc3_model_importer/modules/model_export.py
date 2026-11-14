@@ -30,18 +30,11 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
 def syncExportConfigFromScene( config, mip ):
-    # The panel writes to scene properties but the exporter reads plugin.config,
-    # which gets loaded from a yml in %APPDATA% and was never updated from the UI.
-    # Every checkbox on the export panel was doing nothing without this.
+    # the panel writes scene properties, the exporter reads plugin.config
     config.flipUpAxis              = mip.export_flip_up_axis
-    # DEPRECATED: export_compatwithlukasscript is commented out in properties.py, so
-    # reading it here raises AttributeError before any export can start.
-    # config.lukasCompat             = mip.export_compatwithlukasscript
     config.lukasCompat             = False
 
     config.exportFilePath          = mip.export_modelpath
-    # DEPRECATED: config.exportRoot was never read by anything
-    # config.exportRoot              = mip.extracted_archive_directory
 
     config.exportWeights           = mip.export_weights
     config.exportNormals           = mip.export_normals
@@ -56,8 +49,7 @@ def syncExportConfigFromScene( config, mip ):
     config.exportGroupPerMesh      = mip.export_group_per_mesh
     config.exportGenerateEnvelopes = mip.generate_envelopes
 
-    # DEPRECATED: mrl generation from the scene. Forced off so a leftover value in
-    # the AppData yml can't switch the dead code paths back on.
+    # mrl generation is disabled, keep an old AppData yml from turning it on
     config.exportGenerateMrl       = False
     config.exportExistingMrlYml    = mip.use_existing_mrl
     config.exportMrlYmlPath        = mip.existing_mrl_yml
@@ -65,7 +57,7 @@ def syncExportConfigFromScene( config, mip ):
     config.exportMetadataPath      = mip.export_metadata_file if mip.export_withmetadata else ''
     config.exportRefPath           = mip.export_reference_model_file if mip.export_use_reference_model else ''
 
-    # the ref toggles only mean anything when there is a ref to pull from
+    # ref toggles need a ref file
     useRef = mip.export_use_reference_model and mip.export_reference_model_file != ''
     config.exportUseRefJoints      = useRef
     config.exportUseRefEnvelopes   = useRef
@@ -97,9 +89,6 @@ class SUB_PT_Model_Export(Panel):
             row.prop(mip, 'export_modelpath')
             row = layout.row(align=True)
             row.operator(SUB_OP_MOD_ExportModelPath.bl_idname, icon='IMPORT', text='Choose UMVC3 .mod file')       
-            # DEPRECATED: extracted archive directory, only fed the mrl texture paths
-            # row = layout.row(align=True)
-            # row.prop(mip, 'extracted_archive_directory')
             row = layout.row(align=True)
 
             row.prop(mip, 'export_use_reference_model',text='Use Reference Model when exporting:')
@@ -117,16 +106,9 @@ class SUB_PT_Model_Export(Panel):
 
             row = layout.row(align=True)
             row.prop(mip, 'export_flip_up_axis',text='Flip Up Axis')
-            # DEPRECATED: every lukasCompat code path in base_exporter, base_importer
-            # and blender_importer is commented out, so this checkbox does nothing.
-            # row = layout.row(align=True)
-            # row.prop(mip, 'export_compatwithlukasscript',text='Compatibility With Lukas Script')
             row = layout.row() 
 
             layout.separator()
-            # DEPRECATED: generating an mrl from the blender scene
-            # row = layout.row(align=True)
-            # row.prop(mip, 'generate_mrl',text='Generate MRL:')
             row = layout.row(align=True)
             row.prop(mip, 'use_existing_mrl',text='Use Existing MRL YML:')
             row = layout.row(align=True)
@@ -259,8 +241,6 @@ class SUB_PT_MOD_OT_export(bpy.types.Operator):
     def execute(self, context):
         mip:UMVC3ModelImportProperties = context.scene.sub_scene_properties
 
-        # This body used to sit inline while the dispatch below still called
-        # _execute(), so an export would run fine and then die on a NameError.
         def _execute():
             print("Variable Check!\n")
             print("Model Chosen: ", mip.export_modelpath)

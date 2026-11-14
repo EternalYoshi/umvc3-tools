@@ -38,7 +38,7 @@ class Emitter:
         # bind.external_texture(id, sampler) hands back the colour / alpha sockets
         self.external = set()
 
-    # ---------------------------------------------------------------- helpers
+    # helpers
     def _place(self, node, depth):
         r = self.rows.get(depth, 0)
         self.rows[depth] = r + 1
@@ -71,7 +71,7 @@ class Emitter:
         self._place(n, depth)
         return n.outputs[0]
 
-    # ---------------------------------------------------------------- main
+    # main
     def needed(self, roots=None):
         want = set()
         if roots is None:

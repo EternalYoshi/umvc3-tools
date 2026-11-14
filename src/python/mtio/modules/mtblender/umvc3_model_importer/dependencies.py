@@ -31,7 +31,7 @@ def ensureModulesPathOnSysPath():
 
 
 def getMissingDependencies():
-    # Names of the dependencies that cannot currently be imported.
+    # dependencies that can't be imported right now
     ensureModulesPathOnSysPath()
     missing = []
     for importName, pipName in DEPENDENCIES:
@@ -43,7 +43,7 @@ def getMissingDependencies():
 
 
 def _subprocessFlags():
-    # Stops a console window flashing up on Windows.
+    # no console window flash on Windows
     return getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 
@@ -68,7 +68,7 @@ def installDependencies():
     if not target:
         return False, 'could not locate a writable Blender scripts directory'
 
-    # Blender usually ships pip, but some Linux builds do not.
+    # some Linux builds of Blender don't ship pip
     try:
         _runPip(['--version'])
     except Exception:
@@ -86,7 +86,7 @@ def installDependencies():
     for importName, pipName in missing:
         result = _runPip(['install', '--no-cache-dir', '--target', target, pipName])
 
-        # The pinned version may have no wheel for this Blender's Python.
+        # the pinned version may have no wheel for this Python
         if result.returncode != 0 and '==' in pipName:
             print(f'umvc3-tools: {pipName} failed, retrying unpinned')
             result = _runPip(['install', '--no-cache-dir', '--target', target,

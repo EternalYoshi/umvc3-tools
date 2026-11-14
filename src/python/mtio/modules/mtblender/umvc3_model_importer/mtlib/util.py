@@ -238,7 +238,7 @@ def resolveTexturePath( basePath, texturePath, extraRoots=() ):
             if parent == probe:
                 break
             probe = parent
-    # the old segment counting behaviour
+    # segment counting fallback
     relTexturePathRoot = '../' * ( len( texturePathParts ) - 1 )
     roots.append( os.path.realpath( os.path.join( basePath, relTexturePathRoot ) ) )
     for r in extraRoots or ():

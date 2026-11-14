@@ -106,8 +106,7 @@ class imVertex(object):
         self.uvSecondary = NclVec2()
         self.uvUnique = NclVec2()
         self.uvExtend = NclVec2()
-        # stage formats carry baked per vertex colour and alpha. 127 is the neutral
-        # midpoint the game uses, not 255.
+        # baked vertex colour on stage formats, 127 is neutral
         self.color = NclVec3((127,127,127))
         self.alpha = 1.0
         
@@ -315,9 +314,7 @@ typedef struct {
 '''
 
 class imVertexIANonSkinB(imVertex):
-    # Stage geometry uses this. Without it createFromShader returned None and every such
-    # mesh was silently promoted to IANonSkinTBNLA, stride 20 to 36, with tangent and
-    # occlusion invented from nothing.
+    # stage geometry
     STRIDE = 20
     SHADER = 'IANonSkinB'
     MAX_WEIGHT_COUNT = 0
@@ -349,8 +346,7 @@ class imVertexIANonSkinBL(imVertex):
         
     @staticmethod    
     def getFlags():
-        # the high byte is a per primitive flag,
-        # not part of the vertex format.
+        # the high byte is a per primitive flag, not part of the vertex format
         return 0x01
         
     def write( self, stream ):
@@ -579,9 +575,7 @@ class imVertexIASkinBridge1wt(imVertex):
         stream.writeUShort( vertexcodec.encodeFS16( self.position[0] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[1] ) )
         stream.writeUShort( vertexcodec.encodeFS16( self.position[2] ) )
-        # jointId, not jointIds[0]. toBinaryModel only ever sets the singular field
-        # for 1 weight formats, so reading the array wrote a hardcoded 0 and every
-        # vertex using this format ended up rigged to the root.
+        # 1 weight formats only set jointId
         stream.writeShort( vertexcodec.encodeS16( self.jointId ) )
         stream.writeUInt( vertexcodec.encodeX8Y8Z8W8( ( self.normal[0], self.normal[1], self.normal[2], self.occlusion ) ) )
 
@@ -897,7 +891,7 @@ class imPrimitive(object):
                 cv.uvSecondary = (uvSecondary[i][0], uvSecondary[i][1]) if uvSecondary != None and len(uvSecondary) != 0 else None
                 cv.uvUnique = (uvUnique[i][0], uvUnique[i][1]) if uvUnique != None and len(uvUnique) != 0 else None
                 cv.uvExtend = (uvExtend[i][0], uvExtend[i][1]) if uvExtend != None and len(uvExtend) != 0 else None    
-                # tangents are generated after this now, so the list is normally empty here.
+                # tangents are generated after indexing, usually empty here
                 cv.tangent = (tangents[i][0], tangents[i][1], tangents[i][2], tangents[i][3]) if tangents != None and len(tangents) > i else None
 
             if isSkinned:
@@ -955,10 +949,7 @@ class imPrimitive(object):
             self.indices.append( tempIndices[i] )
             
     def generateTangents( self, progressCb=None ):
-        # [NclVec3()] * n gives n references to ONE glm vector, and glm's += mutates in
-        # place, so every vertex was accumulating into the same object. Each vertex ended
-        # up with the sum of every triangle in the primitive instead of its own. Building
-        # the list with a comprehension gives each vertex its own vector.
+        # one vector per vertex, [NclVec3()] * n would share one and glm's += is in place
         tangents = [NclVec3() for _ in range(len(self.positions))]
         bitangents = [NclVec3() for _ in range(len(self.positions))]
         self.tangents = []
@@ -975,17 +966,12 @@ class imPrimitive(object):
             texCoordA = self.uvPrimary[ triangleC ] - self.uvPrimary[ triangleA ]
             texCoordB = self.uvPrimary[ triangleB ] - self.uvPrimary[ triangleA ]
 
-            # uvPrimary is stored in MT convention (V down) but the tangent basis has
-            # to be worked out in the convention the art was authored in (V up), or the
-            # handedness comes out inverted. Reproducing Ryu's stored tangent signs from
-            # his own geometry gives 96% with V flipped and 4.5% without.
+            # uvPrimary is stored V down, the tangent basis needs V up or the handedness
+            # flips (matches 96% of Ryu's stored signs flipped, 4.5% without)
             texCoordA = NclVec2(( texCoordA[0], -texCoordA[1] ))
             texCoordB = NclVec2(( texCoordB[0], -texCoordB[1] ))
 
-            # proper 2d cross of the uv deltas. the old form substituted sign(texCoordB[0])
-            # for texCoordB[0], which threw away the magnitude and flipped sign whenever that
-            # delta was small. scaling both tangent and bitangent by it cancels out of the
-            # handedness test, so this only affects the tangent vector itself.
+            # 2d cross of the uv deltas, it cancels out of the handedness test
             direction = texCoordA[0] * texCoordB[1] - texCoordA[1] * texCoordB[0]
 
             tangent = ( positionA * texCoordB[1] - positionB * texCoordA[1] ) * direction
@@ -1009,9 +995,8 @@ class imPrimitive(object):
             tangent = nclNormalize( tangent - normal * nclDot( tangent, normal ) )
             bitangent = nclNormalize( bitangent - normal * nclDot( bitangent, normal ) )
 
-            # A mesh with no uv area (every uv identical) gives a degenerate basis, and
-            # normalising it leaves NaN which encodes to a zero tangent. w is only ever
-            # +1 or -1 in retail, so fall back to any vector perpendicular to the normal.
+            # no uv area gives a degenerate basis (NaN after normalising), use any vector
+            # perpendicular to the normal. w is always +1 or -1 in retail
             if math.isnan( tangent[0] ) or nclLength( tangent ) < 0.0001:
                 axis = NclVec3( (0,0,1) ) if abs( normal[2] ) < 0.9 else NclVec3( (1,0,0) )
                 tangent = nclNormalize( nclCross( normal, axis ) )
@@ -1199,8 +1184,7 @@ class imModel:
         # order joints by index, or at the end of not specified
         oldOrder = list( self.joints )
         self.joints = sorted( self.joints, key=lambda x: x.index )
-        # every vanilla model lists parents before their children, and the bone index
-        # attribute alone doesn't promise that, so fix the order where it breaks it
+        # vanilla models list parents before children, the index attribute doesn't guarantee it
         position = { id( j ): k for k, j in enumerate( self.joints ) }
         if any( j.parent is not None and id( j.parent ) in position and position[ id( j.parent ) ] > k
                 for k, j in enumerate( self.joints ) ):
@@ -1216,10 +1200,7 @@ class imModel:
                 place( j )
             self.joints = ordered
         if oldOrder != self.joints:
-            # vertex weights were built against the order the joints were created in,
-            # so they have to follow the sort or every vertex lands on the wrong bone.
-            # Imported models never hit this because their index attribute is the
-            # creation order; any rig built or reordered in Blender does.
+            # weights index the creation order, remap them to the sorted order
             newIndex = { id( j ): k for k, j in enumerate( self.joints ) }
             remap = [ newIndex[ id( j ) ] for j in oldOrder ]
             seen = set()
@@ -1231,8 +1212,7 @@ class imModel:
                     w.indices = [ remap[ x ] for x in w.indices ]
         if len( self.joints ) > 255:
             raise RuntimeError( f"Too many bones. (max 255, got {len(self.joints)})" )
-        # the bone map is 256 entries indexed by id, so ids must be 0-255 and unique,
-        # otherwise one bone silently takes another's place and animations hit the wrong one
+        # the bone map is 256 entries indexed by id, ids must be 0-255 and unique
         byId = {}
         for j in self.joints:
             if not ( 0 <= j.id <= 255 ):
@@ -1315,11 +1295,8 @@ class imModel:
                 modEnvelope.field08 = envelope.field08
                 modEnvelope.field0c = envelope.field0c
                 if envelope.boundingSphere != None and envelope.min != None and envelope.max != None:
-                    # Copy bounds from the reference verbatim. Don't run the sphere through
-                    # _isValidBoundingSphere here: retail models carry envelopes with a zero
-                    # radius and min == max (a point), which that check calls invalid, so 38
-                    # of Ryu's 414 were thrown away and replaced with the primitive's bounds.
-                    # min and max being set at all is what marks this as a ref copy.
+                    # copy ref bounds as is, retail has zero radius point envelopes that
+                    # _isValidBoundingSphere would reject. min / max set marks a ref copy
                     modEnvelope.boundingSphere = envelope.boundingSphere
                     modEnvelope.min = envelope.min
                     modEnvelope.max = envelope.max
@@ -1358,7 +1335,7 @@ class imModel:
                 meshMatIndex = len( mod.materials )
                 mod.materials.append( mesh.materialName )
                 
-            # always, not just past 4 bones: it also normalizes, and painted weights rarely sum to 1
+            # always, it also normalizes
             mesh.reduceWeights( 4 )
 
             # determine vertex format 
@@ -1371,8 +1348,7 @@ class imModel:
                 vtx: imVertex = mesh.vertexFormat.vertexType()                
                 vtx.position = mesh.positions[i]
                 vtx.normal = mesh.normals[i]  
-                # retail models bake ambient occlusion here and the shaders multiply the
-                # lit diffuse by it. Write back what was imported, 1 when there's none.
+                # baked AO, 1 when there's none
                 vtx.occlusion = mesh.occlusions[i] if mesh.occlusions is not None and len( mesh.occlusions ) > i else 1
 
                 if mesh.colors is not None and len( mesh.colors ) > i:
@@ -1431,8 +1407,7 @@ class imModel:
                         
                     assert usedBoneCount > 0, 'mesh {} has unrigged vertex at index {}'.format(mesh.name, i)
 
-                    # adjust for floating point error, in proportion so the weights keep their balance
-                    # (reduceWeights already normalized them, so this is tiny)
+                    # adjust for floating point error
                     for j in range( vtx.MAX_WEIGHT_COUNT ):
                         vtx.weights[ j ] = vtx.weights[ j ] / weightSum
                 

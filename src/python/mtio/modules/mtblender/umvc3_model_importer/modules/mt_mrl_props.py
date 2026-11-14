@@ -1,12 +1,10 @@
-'''The whole MRL entry of a material, as Blender properties (Material.mt_entry), editable
-the way the .mrl.yml is: name, type, the three states, both flag words, the cmds in their
-order (flag, cbuffer, samplerstate, texture) and animData. It is the source of truth: the
-shader is built from it and the .mrl export writes it.
+'''A material's full MRL entry as Blender properties (Material.mt_entry): name, type,
+states, flag words, cmds in order and animData. The shader is built from it and the .mrl
+export writes it.
 
-One MRL material can show up as several Blender materials (one per vertex layout, named
-"<name>@IASkinTB4wt"); they share an mt_entry_key and are kept identical. The MT Shader /
-MT UV group sockets mirror the cbuffer members the shader reads, so a value can be changed
-on the node or in the panel; sync() reconciles the two.'''
+Variants of one MRL material ("<name>@IASkinTB4wt", one per vertex layout) share an
+mt_entry_key and are kept identical. The MT Shader / MT UV sockets mirror the cbuffer
+members, sync() keeps them and the panel in step.'''
 import os
 import json
 import base64
@@ -26,9 +24,7 @@ KIND_ICON = { k[0]: k[3] for k in CMD_KINDS }
 _busy = False
 
 
-# ----------------------------------------------------------------------------------------
 # edit callbacks
-# ----------------------------------------------------------------------------------------
 
 def _mat_of( pg ):
     m = pg.id_data
@@ -169,9 +165,7 @@ def unregister():
             pass
 
 
-# ----------------------------------------------------------------------------------------
 # imMaterialInfo <-> entry
-# ----------------------------------------------------------------------------------------
 
 def _hex( v ):
     try:
@@ -270,9 +264,7 @@ def copy_entry( src, dst ):
     b.active = min( a.active, max( 0, len( b.cmds ) - 1 ) )
 
 
-# ----------------------------------------------------------------------------------------
 # textures
-# ----------------------------------------------------------------------------------------
 
 def _inherit_format( img, old ):
     '''the texture format is part of the shader key; a new image without one keeps the
@@ -294,9 +286,7 @@ def texture_path( img, original ):
     return original, f'image "{getattr( img, "name", "?" )}" is not inside the game folder, the path stays {original or "(empty)"}; type the game path in the texture cmd'
 
 
-# ----------------------------------------------------------------------------------------
 # sockets <-> entry
-# ----------------------------------------------------------------------------------------
 
 def _nodes( mat ):
     tree = mat.node_tree
@@ -465,9 +455,7 @@ def sync( mat=None, source=None ):
     return notes
 
 
-# ----------------------------------------------------------------------------------------
 # YML text
-# ----------------------------------------------------------------------------------------
 
 def entry_yaml( mat ):
     import io
@@ -513,9 +501,7 @@ def apply_yaml( mat, text ):
         push_nodes( m )
 
 
-# ----------------------------------------------------------------------------------------
 # validation (what the .mrl writer can encode)
-# ----------------------------------------------------------------------------------------
 
 def problems( mat ):
     from ..mtlib import mvc3shaderdb, mvc3types

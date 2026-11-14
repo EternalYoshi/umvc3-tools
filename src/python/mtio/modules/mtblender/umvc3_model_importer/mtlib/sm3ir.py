@@ -126,7 +126,7 @@ class Builder:
             if t & 0xffff == OP['dcl'] and regtype(a[1]) == 10:
                 self.samplers[a[1] & 0x7ff] = TEXTYPE.get((a[0] >> 27) & 0xf, '2d')
 
-    # -- registers
+    # registers
     def read_reg(self, t):
         g = self.g
         rt = regtype(t); num = t & 0x7ff
@@ -195,7 +195,7 @@ class Builder:
                 cur[k] = x
         self.r[(bank, num)] = cur
 
-    # -- ops
+    # ops
     def dot(self, a, b, n):
         g = self.g
         s = g.op('mul', a[0], b[0])
@@ -337,9 +337,7 @@ def build(sh, ints=None, bools=None):
     return Builder(sh, ints, bools).run()
 
 
-# ---------------------------------------------------------------------------------------
 # numpy evaluation, to check the graph against sm3emu
-# ---------------------------------------------------------------------------------------
 def evaluate(b, consts, inputs, samplers, vface=1.0, vpos=None, n=1):
     """consts: {reg: (n,4) or 4}; inputs: {vreg: (n,4)}; samplers: {s: fn(coords (n,4)) -> (n,4)}"""
     g = b.g

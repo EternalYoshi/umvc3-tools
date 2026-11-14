@@ -1,30 +1,17 @@
-'''MT Framework character shading for Blender, rebuilt from the game's own shaders.
+'''MT Framework character shading, rebuilt from root.spkg / UserShaderPackage.mfx
+(see the ShaderPipeline notes). Shader 1128 matches the emulated original to 1e-6.
+The MRL flags pick building blocks the same way sShader2 does.
 
-Everything here is taken from root.spkg / UserShaderPackage.mfx (see the ShaderPipeline
-notes): the character pixel shaders were disassembled, the cbuffer members named from the
-MFX, and the reconstruction checked against an emulation of the real shader (shader 1128
-matches to 1e-6). The MRL flags pick building blocks the same way sShader2 does.
+Node groups, built once per blend file:
+  MT Toon Coords   normal -> toon ramp u coords, plus the view space normal uv for
+                   sphere maps and FUVViewNormal spec maps
+  MT Character     textures + MRL constants -> final colour
 
-Two node groups, built once per blend file:
-
-  MT Toon Coords   normal -> the u coordinates the toon ramps are sampled at, plus the view
-                   space normal uv used by sphere maps and FUVViewNormal spec maps
-  MT Character     textures + the MRL constants -> the final colour
-
-Lighting comes from the scene. In Eevee every light counts (suns, points, spots, areas,
-their shadows, the world as ambient): the groups read it back with Shader to RGB and feed
-it into the game's toon maths, so one sun at the reference strength gives the game's exact
-numbers. Cycles has no Shader to RGB, so there the groups fall back to the key sun alone,
-the way the game gets it from the stage SDL. Rim colour and power come from the ToonLight. They live
-as custom properties on the scene (mt_light_dir, ...) that the groups read with View Layer
-attribute nodes. A sun lamp drives the key light (direction from its rotation, colour from
-its colour times strength), 'MT Key Light' by default or any sun picked in the panel, so
-the scene's own sun lights MT and regular materials alike. load_stage_lighting() fills
-everything from a stage's sdl folder.
-
-The maths runs on raw texture values like the game does (it lights in gamma space), and the
-group converts the result with the sRGB curve at the end, so with the scene's view transform
-on Standard the render shows the same numbers the game writes.
+In Eevee every scene light is read back with Shader to RGB and fed into the toon maths.
+Cycles has no Shader to RGB and uses the key sun only. Light values live in scene props
+(mt_light_dir, ...) read with View Layer attribute nodes; the key light is 'MT Key Light'
+or the sun picked in the panel. load_stage_lighting() fills them from a stage sdl folder.
+The maths runs in gamma space like the game and ends with the sRGB curve.
 '''
 import math
 import os
@@ -63,9 +50,7 @@ def mt_to_blender( v ):
     return ( v[0], -v[2], v[1] )
 
 
-# ----------------------------------------------------------------------------------------
 # scene lighting
-# ----------------------------------------------------------------------------------------
 
 def ensure_scene_lighting( scene, unit_scale=None ):
     for k, v in SCENE_DEFAULTS.items():
@@ -181,9 +166,7 @@ def set_view_transform_standard( scene ):
         pass
 
 
-# ----------------------------------------------------------------------------------------
 # stage sdl
-# ----------------------------------------------------------------------------------------
 
 _SDL_VALUE = { 6: ( '<i', 4 ), 7: ( '<q', 8 ), 8: ( '<4f', 16 ), 9: ( '<f', 4 ), 11: ( '<B', 1 ) }
 
@@ -275,9 +258,7 @@ def load_stage_lighting( scene, sdl_folder ):
     return ', '.join( report ) if report else 'no lights found'
 
 
-# ----------------------------------------------------------------------------------------
 # node building helpers
-# ----------------------------------------------------------------------------------------
 
 class _NB:
     '''Small helper so the shader maths reads like maths. Every method returns an output
@@ -447,9 +428,7 @@ def _current( name ):
     return None
 
 
-# ----------------------------------------------------------------------------------------
 # MT Toon Coords
-# ----------------------------------------------------------------------------------------
 
 def get_coords_group():
     g = _current( COORDS_GROUP )
@@ -490,7 +469,7 @@ def get_coords_group():
     Nb = b.vec( 'ADD', N, b.vec( 'SCALE', b.vec( 'SUBTRACT', Nv, N ), p ), label='uroko normal' )
     nbdl = b.vec( 'DOT_PRODUCT', Nb, L )
 
-    # --- every light in the scene (Eevee). The game has one light: colour LC and N.L. Here
+    # every light in the scene (Eevee). The game has one light: colour LC and N.L. Here
     # white diffuse probes read back what the scene's lights (any type, shadows included)
     # do at this point, and the light strength and N.L get pulled apart again:
     #   front  = diffuse on  N  -> sum of I * max( N.L, 0)
@@ -571,9 +550,7 @@ def get_coords_group():
     return group
 
 
-# ----------------------------------------------------------------------------------------
 # MT Character
-# ----------------------------------------------------------------------------------------
 
 CHARACTER_INPUTS = (
     # textures
@@ -718,9 +695,7 @@ def get_character_group():
     return group
 
 
-# ----------------------------------------------------------------------------------------
 # textures
-# ----------------------------------------------------------------------------------------
 
 def _pixels( img ):
     w, h = img.size
