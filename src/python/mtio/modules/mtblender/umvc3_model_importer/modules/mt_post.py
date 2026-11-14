@@ -1,11 +1,3 @@
-'''The game's post processing (bloom) for exact shader renders.
-
-The scene target holds colour * fHDRCompressEncode (0.5). Post downsamples it, keeps what
-is over the bloom threshold, blurs at four sizes and adds it back on the decoded scene.
-A recipe is the list of full screen passes captured with umvc3_framecapture (shader
-number, constants, inputs, blend state), run on numpy through the SM3 compiler. Matches
-the Training Room capture to 1/255.
-'''
 import os, json, math
 import numpy as np
 
@@ -88,7 +80,6 @@ def _blend( src, dst, sb, db ):
 # constants that depend on target sizes
 
 def _pass_consts( p, kind, sizes, target_size ):
-    '''{register: vec4} for this pass at the current resolution'''
     Wt, Ht = target_size
     out = {}
     cap_t = p['size']
@@ -127,8 +118,6 @@ def _ir( db, kind, number, ints ):
 
 
 def run( db, scene_img, recipe=None, log=None ):
-    '''scene_img: (H, W, 4) float array, top row first, holding what the game's scene colour
-    target would hold (shader output, 8 bit). Returns the post processed (H, W, 4) image.'''
     recipe = recipe or load_recipe()
     H, W = scene_img.shape[:2]
     images = { 'scene': np.round( np.clip( scene_img, 0, 1 ) * 255 ) / 255 }
@@ -189,9 +178,6 @@ def srgb_encode( x ):
     return np.where( x <= 0.0031308, x * 12.92, 1.055 * np.power( x, 1 / 2.4 ) - 0.055 )
 
 def render_with_post( context, recipe_path=None, image_name='MT Game Render', log=None ):
-    '''Renders the scene, turns the exact game shader output back into what the game's
-    scene target would hold, runs the post recipe and stores the result as an image.
-    Returns the image.'''
     import bpy, tempfile
     from . import mt_exact
     scene = context.scene
@@ -247,7 +233,7 @@ def render_with_post( context, recipe_path=None, image_name='MT Game Render', lo
             bpy.data.images.remove( im )
         im = bpy.data.images.new( image_name, W, H, alpha=True, float_buffer=False )
     im.alpha_mode = 'PREMUL'
-    # a byte image takes its pixels as display values, which is what the game shows
+    # a byte image takes its pixels as display values
     im.pixels.foreach_set( np.ascontiguousarray( out[::-1] ).ravel() )
     im.update()
     return im

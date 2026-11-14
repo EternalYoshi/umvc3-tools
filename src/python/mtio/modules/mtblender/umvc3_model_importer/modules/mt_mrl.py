@@ -1,6 +1,3 @@
-'''Writes an .mrl (and .mrl.yml) from the game shader materials: the imported .mrl
-with each entry replaced by the material's mt_entry. Unused materials are written back
-unchanged and in order. The texture list is rebuilt from what the materials use.'''
 import os
 import collections
 
@@ -11,7 +8,7 @@ from . import mt_mrl_props
 
 
 def game_materials( src=None ):
-    '''{source mrl path: [blender materials]}'''
+    #{source mrl path: [blender materials]}
     out = collections.defaultdict( list )
     for m in bpy.data.materials:
         if not mt_mrl_props.has_entry( m ) and 'mt_mrl' not in m.keys():
@@ -22,7 +19,6 @@ def game_materials( src=None ):
     return out
 
 def build_library( src, logger=None ):
-    '''The source .mrl with the Blender entries applied. Returns (imMaterialLib, notes).'''
     for ms in game_materials( src ).values():
         for m in ms:
             if not mt_mrl_props.has_entry( m ):

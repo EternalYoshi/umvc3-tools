@@ -1,18 +1,3 @@
-'''MT Framework character shading, rebuilt from root.spkg / UserShaderPackage.mfx
-(see the ShaderPipeline notes). Shader 1128 matches the emulated original to 1e-6.
-The MRL flags pick building blocks the same way sShader2 does.
-
-Node groups, built once per blend file:
-  MT Toon Coords   normal -> toon ramp u coords, plus the view space normal uv for
-                   sphere maps and FUVViewNormal spec maps
-  MT Character     textures + MRL constants -> final colour
-
-In Eevee every scene light is read back with Shader to RGB and fed into the toon maths.
-Cycles has no Shader to RGB and uses the key sun only. Light values live in scene props
-(mt_light_dir, ...) read with View Layer attribute nodes; the key light is 'MT Key Light'
-or the sun picked in the panel. load_stage_lighting() fills them from a stage sdl folder.
-The maths runs in gamma space like the game and ends with the sRGB curve.
-'''
 import math
 import os
 import struct
@@ -22,7 +7,7 @@ import mathutils
 
 try:
     import numpy as np
-except ImportError:          # blender always ships numpy, this is only for linters
+except ImportError:          
     np = None
 
 COORDS_GROUP = 'MT Toon Coords'
@@ -30,23 +15,20 @@ CHARACTER_GROUP = 'MT Character'
 GROUP_VERSION = 4
 KEY_LIGHT_NAME = 'MT Key Light'
 
-# Training Room (stg000) values from its Environment00.sdl, converted to blender axes.
-# InfiniteLight_Chara_Front mDir is MT (0.0324, 0.4475, 0.8937) and points at the light.
 SCENE_DEFAULTS = {
     'mt_light_dir':   ( 0.03236, -0.8937, 0.4475 ),
     'mt_light_color': ( 1.15, 1.15, 1.15 ),
-    'mt_ambient':     ( 0.0, 0.0, 0.0 ),        # unknown for characters, see notes
-    'mt_rim_color':   ( 0.0, 2.326, 10.0 ),     # ToonLight mRimLightColorFactor
-    'mt_rim_power':   4.0,                      # ToonLight mRimLightPower
-    'mt_rim_min_height': 2.0,                   # baked into the compiled shaders
+    'mt_ambient':     ( 0.0, 0.0, 0.0 ),        
+    'mt_rim_color':   ( 0.0, 2.326, 10.0 ),     
+    'mt_rim_power':   4.0,                      
+    'mt_rim_min_height': 2.0,                   
     'mt_rim_max_height': 15.0,
-    'mt_unit_scale':  1.0,                      # importer model scale, MT units -> blender
-    'mt_scene_lights': 1.0,                     # 1: every light in the scene (Eevee), 0: key sun only
-    'mt_world_ambient': 1.0,                    # world lighting counts as the ambient term
+    'mt_unit_scale':  1.0,                      
+    'mt_scene_lights': 1.0,                     
+    'mt_world_ambient': 1.0,                    
 }
 
 def mt_to_blender( v ):
-    '''MT is y up, the importer flips to z up: (x, y, z) -> (x, -z, y).'''
     return ( v[0], -v[2], v[1] )
 
 
@@ -64,7 +46,6 @@ def _is_sun( obj ):
     return obj is not None and obj.type == 'LIGHT' and obj.data is not None and obj.data.type == 'SUN'
 
 def key_light( scene ):
-    '''The sun lamp the MT materials follow: the one picked in the panel, else 'MT Key Light'.'''
     mip = getattr( scene, 'sub_scene_properties', None )
     obj = getattr( mip, 'mt_key_light', None ) if mip is not None else None
     if _is_sun( obj ):
@@ -73,9 +54,6 @@ def key_light( scene ):
     return obj if _is_sun( obj ) else None
 
 def ensure_key_light( scene ):
-    '''Makes sure a sun lamp drives the MT lighting. Any sun in the scene can be picked in the
-    panel; its rotation sets mt_light_dir and its colour times strength sets mt_light_color,
-    so it lights MT materials and regular Blender materials the same way.'''
     obj = key_light( scene )
     if obj is None:
         old = bpy.data.objects.get( KEY_LIGHT_NAME )
@@ -104,7 +82,6 @@ def set_key_light_direction( scene, direction, obj=None ):
     scene['mt_light_dir'] = tuple( d )
     obj = obj or key_light( scene )
     if obj is not None:
-        # a sun shines down its -Z, so +Z points at the light like the game's mDir
         obj.rotation_mode = 'QUATERNION'
         obj.rotation_quaternion = d.to_track_quat( 'Z', 'Y' )
 
@@ -112,8 +89,6 @@ def _srgb_to_linear( c ):
     return c / 12.92 if c <= 0.04045 else ( ( c + 0.055 ) / 1.055 ) ** 2.4
 
 def set_key_light_color( scene, color, obj=None ):
-    '''color is a game (gamma space) light colour like the SDL's mColor. The sun gets its
-    hue in linear and the brightest channel as strength.'''
     c = [ float( x ) for x in tuple( color )[:3] ]
     strength = max( c ) if max( c ) > 0 else 0.0
     scene['mt_light_color'] = tuple( c )
@@ -124,8 +99,6 @@ def set_key_light_color( scene, color, obj=None ):
         obj.data.energy = strength
 
 def _drive_from_key_light( scene ):
-    '''Drivers on the scene props, read through the panel's key light pointer, so picking a
-    different sun retargets every MT material at once.'''
     if not hasattr( getattr( scene, 'sub_scene_properties', None ), 'mt_key_light' ):
         return
     for prop in ( 'mt_light_dir', 'mt_light_color' ):
@@ -171,7 +144,6 @@ def set_view_transform_standard( scene ):
 _SDL_VALUE = { 6: ( '<i', 4 ), 7: ( '<q', 8 ), 8: ( '<4f', 16 ), 9: ( '<f', 4 ), 11: ( '<B', 1 ) }
 
 def read_sdl( path ):
-    '''-> list of units, each { name, props: { name: first key value } }.'''
     d = open( path, 'rb' ).read()
     if d[:4] != b'SDL\0':
         return []
@@ -209,8 +181,6 @@ def read_sdl( path ):
     return units
 
 def load_stage_lighting( scene, sdl_folder ):
-    '''Reads every .sdl in a stage's sdl folder and sets the scene's MT lighting from the
-    character key light and the ToonLight. Returns a short report.'''
     units = []
     for fn in sorted( os.listdir( sdl_folder ) ):
         if fn.lower().endswith( '.sdl' ):
@@ -261,8 +231,6 @@ def load_stage_lighting( scene, sdl_folder ):
 # node building helpers
 
 class _NB:
-    '''Small helper so the shader maths reads like maths. Every method returns an output
-    socket; inputs can be sockets or plain numbers / tuples.'''
     def __init__( self, tree ):
         self.tree = tree
         self.nodes = tree.nodes
@@ -322,7 +290,6 @@ class _NB:
         return n.outputs[0]
 
     def lerp_f( self, t, a, b ):
-        '''a + t * (b - a) for floats'''
         return self.math( 'MULTIPLY_ADD', t, self.math( 'SUBTRACT', b, a ), a )
 
     def lerp_v( self, t, a, b ):
@@ -332,7 +299,6 @@ class _NB:
         return self.math( 'COMPARE', a, value, 0.25 )
 
     def scene_value( self, name, kind ):
-        '''A scene custom property, read through a View Layer attribute node.'''
         key = ( name, kind )
         if key in self.attr_cache:
             return self.attr_cache[key]
@@ -344,8 +310,6 @@ class _NB:
         return out
 
     def srgb_encode( self, v ):
-        '''exact linear -> sRGB per channel (blender light colours are linear, the game
-        lights in gamma space)'''
         chans = []
         for c in self.sep( v ):
             c = self.math( 'MAXIMUM', c, 0.0 )
@@ -365,15 +329,10 @@ class _NB:
         return n.outputs['Color']
 
     def light_color( self, v ):
-        '''colour x strength (linear) -> the gamma space light the shaders expect: the
-        strength stays as is, the hue goes through the sRGB curve'''
         m = self.math( 'MAXIMUM', self.max3( v ), 1e-6 )
         return self.vec( 'SCALE', self.srgb_encode( self.vec( 'SCALE', v, self.math( 'DIVIDE', 1.0, m ) ) ), m )
 
     def is_cycles( self ):
-        '''Cycles has no Shader to RGB, it drops the node and the socket it fed falls back to
-        its own default value. Feed black emission into a socket whose default is 1:
-        Eevee reads 0, Cycles reads 1.'''
         em = self.node( 'ShaderNodeEmission', 'engine probe' )
         em.inputs['Color'].default_value = ( 0.0, 0.0, 0.0, 1.0 )
         n = self.node( 'ShaderNodeMath', 'is cycles', operation='MAXIMUM' )
@@ -383,7 +342,6 @@ class _NB:
         return n.outputs[0]
 
     def srgb_decode( self, v ):
-        '''exact sRGB -> linear per channel, so Standard view shows the raw value'''
         chans = []
         for c in self.sep( v ):
             c = self.math( 'MAXIMUM', c, 0.0 )
@@ -417,8 +375,6 @@ def _make_group( name, inputs, outputs ):
     return group, gin.outputs, gout.inputs
 
 def _current( name ):
-    '''An existing group of this version is reused, so edits to it survive reimports.
-    Older versions get renamed out of the way instead of overwritten.'''
     g = bpy.data.node_groups.get( name )
     if g is None:
         return None
@@ -468,22 +424,10 @@ def get_coords_group():
                 b.math( 'POWER', b.math( 'MAXIMUM', b.math( 'MINIMUM', ndl, 1.0 ), 0.0 ), I['fUrokoFactor'] ) )
     Nb = b.vec( 'ADD', N, b.vec( 'SCALE', b.vec( 'SUBTRACT', Nv, N ), p ), label='uroko normal' )
     nbdl = b.vec( 'DOT_PRODUCT', Nb, L )
-
-    # every light in the scene (Eevee). The game has one light: colour LC and N.L. Here
-    # white diffuse probes read back what the scene's lights (any type, shadows included)
-    # do at this point, and the light strength and N.L get pulled apart again:
-    #   front  = diffuse on  N  -> sum of I * max( N.L, 0)
-    #   back   = diffuse on -N  -> sum of I * max(-N.L, 0)
-    #   side 1 = diffuse on +T1 and -T1 -> sum of I * |T1.L|, same for T2
-    # For one light, strength I = length(front + back, side1, side2) and N.L =
-    # (front - back) / I, exact. Several lights blend into one weighted direction, per
-    # colour channel, so coloured lights tint the toon bands. A sun gives the game's numbers.
     use = b.math( 'MULTIPLY', b.scene_value( 'mt_scene_lights', 'float' ),
                   b.math( 'SUBTRACT', 1.0, b.is_cycles() ), label='use scene lights' )
 
     def probe( *normals ):
-        # one Shader to RGB per diffuse: Eevee picks closures at random when a Shader to
-        # RGB holds several, which turns an Add Shader into noise
         total = None
         for n in normals:
             d = b.node( 'ShaderNodeBsdfDiffuse', 'light probe' )
@@ -607,20 +551,17 @@ def get_character_group():
     Ns = b.vec( 'NORMALIZE', I['Shading Normal'] )
     ndv = b.vec( 'DOT_PRODUCT', N, V, label='N.V' )
 
-    # diffuse light: (light * ramp + ambient), or plain lambert for non toon FBRDF
     d_toon = b.vec( 'ADD', b.vec( 'MULTIPLY', LC, I['Toon Ramp'] ), AMB )
     d_lam = b.vec( 'ADD', I['Lambert Light'], AMB )
     D = b.lerp_v( I['Toon'], d_lam, d_toon )
     Dlit = b.vec( 'SCALE', b.vec( 'MULTIPLY', D, I['fDiffuseColor'] ), I['Occlusion'], )
 
-    # albedo, saturated like the shader's mul_sat
     am = b.node( 'ShaderNodeMix', 'albedo x fAlbedoColor' )
     am.data_type = 'RGBA'; am.blend_type = 'MULTIPLY'; am.clamp_result = True
     am.inputs['Factor'].default_value = 1.0
     b.feed( am.inputs[6], I['Albedo'] ); b.feed( am.inputs[7], I['fAlbedoColor'] )
     A = am.outputs[2]
 
-    # FDiffuseColorCorect: saturation boost from how grey the light is
     s = b.math( 'DIVIDE', b.vec( 'DOT_PRODUCT', Dlit, ( 1.0, 1.0, 1.0 ) ),
                 b.math( 'MAXIMUM', b.vec( 'LENGTH', Dlit ), 1e-6 ) )
     k = b.math( 'MULTIPLY',
@@ -635,15 +576,11 @@ def get_character_group():
     A2 = b.lerp_v( I['Color Correct'], A, hsv.outputs['Color'] )
     diffuse = b.vec( 'MULTIPLY', Dlit, A2, label='diffuse' )
 
-    # Blinn specular on the (uroko) shading normal
     H = b.vec( 'NORMALIZE', b.vec( 'ADD', L, V ) )
     ndh = b.vec( 'DOT_PRODUCT', Ns, H )
     on = b.math( 'GREATER_THAN', ndh, 1e-5 )
     pw = b.math( 'MULTIPLY', b.math( 'POWER', b.math( 'MAXIMUM', ndh, 1e-5 ), I['fShininess'] ), on )
     spec_key = b.vec( 'SCALE', LC, pw )
-    # every scene light: a glossy lobe matched to the Blinn exponent. Roughness from
-    # alpha = sqrt(2 / (n + 2)), scaled so a sun gives the same peak as pow(N.H, n) * light.
-    # The world's own reflection is roughly the world light, take it out like the diffuse.
     alpha = b.math( 'SQRT', b.math( 'DIVIDE', 2.0, b.math( 'ADD', I['fShininess'], 2.0 ) ) )
     gl = b.node( 'ShaderNodeBsdfGlossy', 'scene specular' )
     gl.inputs['Color'].default_value = ( 1.0, 1.0, 1.0, 1.0 )
@@ -662,11 +599,9 @@ def get_character_group():
                      b.math( 'MULTIPLY_ADD', f5, I['fFresnelLegacyFactor'], I['fFresnelLegacyBias'], clamp=True ) )
     F = b.lerp_f( b.eq( I['Fresnel'], 1.0 ), 1.0, schlick )
     F = b.lerp_f( b.eq( I['Fresnel'], 2.0 ), F, legacy )
-    # MaskToon skips the vertex occlusion, Map and the no spec map case apply it
     occ_f = b.lerp_f( b.eq( I['Specular'], 1.0 ), I['Occlusion'], 1.0 )
     spec_out = b.vec( 'SCALE', sr, b.math( 'MULTIPLY', b.math( 'MULTIPLY', F, I['Specular Mask'] ), occ_f ), )
 
-    # rim: (1 - N.V)^2 ^ power * light * rev ramp * height fade * rim colour * spec mask
     r = b.math( 'POWER', b.math( 'MAXIMUM', b.math( 'SUBTRACT', 1.0, ndv ), 1e-5 ), 2.0 )
     rp = b.math( 'POWER', r, b.scene_value( 'mt_rim_power', 'float' ) )
     pz = b.sep( geo.outputs['Position'] )[2]
@@ -705,7 +640,6 @@ def _pixels( img ):
 
 def _new_image( name, w, h, px, path=None, non_color=False ):
     out = bpy.data.images.new( name, w, h, alpha=True )
-    # colour space first, changing it later regenerates a generated image and wipes it
     if non_color:
         try:
             out.colorspace_settings.name = 'Non-Color'
@@ -724,11 +658,8 @@ def _new_image( name, w, h, px, path=None, non_color=False ):
         out.pack()
     return out
 
-YUV_OFFSET = 123.0 / 255.0     # the game's decode, from the material and GUI shaders
-
+YUV_OFFSET = 123.0 / 255.0     
 def decode_yuv_image( img, png_path=None ):
-    '''Format 42 (BM_HQ) textures hold Y in alpha, V in red, U in blue and opacity in
-    green. Returns a new RGBA image with the game's own BT.601 decode applied.'''
     if np is None or img is None:
         return img
     px = _pixels( img ).astype( np.float64 )
@@ -748,8 +679,6 @@ def decode_yuv_image( img, png_path=None ):
     return new
 
 def bake_toon_high_ramp( img, toon_factor ):
-    '''FToonShaderHigh tweaks the ramp colour with fToonFactor before lighting. It's a
-    per texel function, so bake it into a copy of the ramp (exact port, see mtramp).'''
     from ..mtlib import mtramp
     if np is None or img is None:
         return img

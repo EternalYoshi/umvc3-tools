@@ -1,7 +1,3 @@
-'''
-Intermediate material library representation for easier editing
-'''
-       
 from argparse import ArgumentError
 import base64
 from dataclasses import dataclass
@@ -363,20 +359,15 @@ class imMaterialInfo(object):
         return None
     
     def getFlagValue( self, flagName ):
-        '''Value of a 'flag' command, e.g. FUVAlbedoMap -> FUVPrimary. None if absent.'''
         for cmd in self.cmds:
             if cmd.type == 'flag' and cmd.name == flagName:
                 return cmd.data
         return None
 
     def hasFlag( self, flagName ):
-        '''Whether a flag command is present at all. Feature toggles like FBump are
-        present when the feature is on and absent when it is not.'''
         return self.getFlagValue( flagName ) is not None
 
     def getUVChannelForSlot( self, slotName ):
-        '''Which UV channel feeds a texture slot. The mrl pairs tAlbedoMap with a
-        FUVAlbedoMap flag whose value names the channel. Falls back to primary.'''
         flag = 'FUV' + slotName[1:] if slotName.startswith( 't' ) else 'FUV' + slotName
         value = self.getFlagValue( flag )
         return {
@@ -439,15 +430,11 @@ class imMaterialInfo(object):
         }
 
     def getCBuffer( self, name ):
-        '''Named constant buffer as a flat list of floats, or None.'''
         for cmd in self.cmds:
             if cmd.type == 'cbuffer' and cmd.name == name:
                 return cmd.data
         return None
-
-    # Member layout of the cbuffers MRLs carry, from UserShaderPackage.mfx:
-    # member -> ( cbuffer, float offset, component count ). Offsets are into the flat
-    # float list the cbuffer command stores, so row N of a cbuffer is offset 4N.
+    
     CBUFFER_MEMBERS = {
         'fAlphaClipThreshold':      ( '$Globals', 0, 1 ),
         'fAlbedoColor':             ( '$Globals', 1, 3 ),
@@ -477,8 +464,6 @@ class imMaterialInfo(object):
     }
 
     def getConstant( self, member, default=None ):
-        '''A cbuffer member by its shader name, e.g. getConstant('fShininess').
-        Floats for scalars, tuples for vectors, default when the mrl lacks it.'''
         layout = imMaterialInfo.CBUFFER_MEMBERS.get( member )
         if layout is None:
             return default
@@ -490,12 +475,9 @@ class imMaterialInfo(object):
         return vals[0] if count == 1 else vals
 
     def getDiffuseTint( self ):
-        '''CBMaterial fDiffuseColor. Multiplies the lit diffuse term.'''
         return self.getConstant( 'fDiffuseColor' )
 
     def getSpecularTint( self ):
-        '''$Globals fSpecularColor. (CBMaterial[4..6] is fReflectiveColor, the sphere
-        and env map tint, not specular.)'''
         return self.getConstant( 'fSpecularColor' )
 
     def getSpecularPower( self ):
@@ -506,14 +488,9 @@ class imMaterialInfo(object):
         return self.getConstant( 'fReflectiveColor' )
 
     def getDiffuseColorCorrect( self ):
-        '''CBDiffuseColorCorect fDiffuseColorCorectValue. Not a brightness multiplier:
-        FDiffuseColorCorect uses it to boost albedo saturation depending on the light.'''
         return self.getConstant( 'fDiffuseColorCorectValue' )
 
     def getHalfLambert( self ):
-        '''CBHalfLambert ( fHalfLambertRevise, fHalfLambertReviseRev ). One spread per
-        ramp: the game samples u = max(0, s * N.L + saturate(1 - s)), .x for tToonMap and
-        .y for tToonRevMap. 0.5 is classic half lambert, 1 is plain N.L.'''
         rev = self.getConstant( 'fHalfLambertRevise' )
         rrev = self.getConstant( 'fHalfLambertReviseRev' )
         if rev is None:
@@ -521,8 +498,6 @@ class imMaterialInfo(object):
         return ( rev, rrev if rrev is not None else 0.5 )
 
     def getShaderVariant( self ):
-        '''Which shader building blocks the mrl flags pick, in the game's own terms.
-        Mirrors how sShader2 assembles the pixel shader from the flag overrides.'''
         brdf = self.getFlagValue( 'FBRDF' ) or ''
         spec = self.getFlagValue( 'FSpecular' ) or ''
         diffuse = self.getFlagValue( 'FDiffuse' ) or ''

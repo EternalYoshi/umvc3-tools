@@ -1,10 +1,3 @@
-'''A material's full MRL entry as Blender properties (Material.mt_entry): name, type,
-states, flag words, cmds in order and animData. The shader is built from it and the .mrl
-export writes it.
-
-Variants of one MRL material ("<name>@IASkinTB4wt", one per vertex layout) share an
-mt_entry_key and are kept identical. The MT Shader / MT UV sockets mirror the cbuffer
-members, sync() keeps them and the panel in step.'''
 import os
 import json
 import base64
@@ -31,7 +24,6 @@ def _mat_of( pg ):
     return m if isinstance( m, bpy.types.Material ) else None
 
 def _value_edited( self, context ):
-    '''a value the shader group shows on its sockets: no rebuild, mirror to the siblings'''
     if _busy:
         return
     mat = _mat_of( self )
@@ -39,7 +31,6 @@ def _value_edited( self, context ):
         sync( mat, source=mat )
 
 def _structure_edited( self, context ):
-    '''something the program depends on: mirror, and flag the shader as out of date'''
     if _busy:
         return
     mat = _mat_of( self )
@@ -103,7 +94,6 @@ CLASSES = ( MtMrlFloat, MtMrlCmd, MtMrlEntry )
 
 @bpy.app.handlers.persistent
 def _live_sync( scene, depsgraph ):
-    '''a socket or image changed on the node editor: fold it into the entry and the variants'''
     if _busy:
         return
     try:
@@ -124,8 +114,6 @@ def _live_sync( scene, depsgraph ):
         print( '[MT] live sync: %s' % e )
 
 def _poll_active():
-    '''Socket edits don't always reach depsgraph_update_post; the active material is also
-    checked twice a second so the panel and the other variants follow the node editor.'''
     try:
         if not _busy:
             vl = getattr( bpy.context, 'view_layer', None )
@@ -183,7 +171,6 @@ def entry_key( mat ):
     return mat.get( 'mt_entry_key', '' )
 
 def fill_entry( mat, info, images=None, source=None ):
-    '''imMaterialInfo -> Material.mt_entry (the import, or applying YML text)'''
     global _busy
     was, _busy = _busy, True
     try:
@@ -225,7 +212,6 @@ def fill_entry( mat, info, images=None, source=None ):
         _busy = was
 
 def info_from_entry( mat ):
-    '''Material.mt_entry -> imMaterialInfo, what the shader is built from and the export writes'''
     e = mat.mt_entry
     info = imMaterialInfo()
     info.name = e.name; info.type = e.type; info.blendState = e.blendState
@@ -240,7 +226,6 @@ def info_from_entry( mat ):
     return info
 
 def entry_images( mat ):
-    '''texture slot -> image, for the shader builder'''
     return { c.slot: c.image for c in mat.mt_entry.cmds if c.kind == 'texture' and c.image is not None }
 
 def copy_entry( src, dst ):
@@ -267,13 +252,10 @@ def copy_entry( src, dst ):
 # textures
 
 def _inherit_format( img, old ):
-    '''the texture format is part of the shader key; a new image without one keeps the
-    slot's (re-export the texture in the same format)'''
     if img is not None and old is not None and old is not img and 'mt_tex_format' not in img.keys() and 'mt_tex_format' in old.keys():
         img['mt_tex_format'] = old['mt_tex_format']
 
 def texture_path( img, original ):
-    '''game path (no extension, backslashes) for an image: (path, note or None)'''
     p = img.get( 'mt_tex_path' ) if img is not None else None
     if p:
         return p, None
@@ -299,7 +281,6 @@ def _nodes( mat ):
     return sg, ug, members
 
 def socket_map( mat ):
-    '''[(label, [sockets], cmd index, [float index])] for the cbuffer members the shader reads'''
     from .mt_exact import member_sockets
     sg, ug, members = _nodes( mat )
     cmd_of = {}
@@ -318,7 +299,6 @@ def socket_map( mat ):
     return out
 
 def member_socket( mat, cb, index ):
-    '''the group socket showing float <index> of cbuffer <cb>, or None'''
     for label, socks, ci, idx in socket_map( mat ):
         c = mat.mt_entry.cmds[ci]
         if c.slot == cb and index in idx:
@@ -330,7 +310,6 @@ def _differs( a, b, eps=1e-6 ):
     return len( a ) != len( b ) or any( abs( x - y ) > eps for x, y in zip( a, b ) )
 
 def pull_nodes( mat ):
-    '''edits made on the node editor since the last sync: [('f', cmd, float, value) | ('t', cmd, image)]'''
     from .mt_exact import _get_socket
     snap = json.loads( mat.get( 'mt_sock_snap', '{}' ) or '{}' )
     cmds = mat.mt_entry.cmds
@@ -382,7 +361,6 @@ def apply_changes( mat, changes ):
     return notes
 
 def push_nodes( mat ):
-    '''entry -> group sockets and texture nodes, and remember what they now show'''
     from .mt_exact import _set_socket, _get_socket
     snap = {}
     cmds = mat.mt_entry.cmds
@@ -408,7 +386,6 @@ def push_nodes( mat ):
     _set_if( mat, 'mt_tex_snap', json.dumps( tsnap ) )
 
 def _set_if( idb, key, value ):
-    # every write is a depsgraph update; writing only changes keeps the live sync from looping
     if idb.get( key ) != value:
         idb[key] = value
 
@@ -417,8 +394,6 @@ def siblings( mat ):
     return sorted( ( m for m in bpy.data.materials if has_entry( m ) and entry_key( m ) == key ), key=lambda m: m.name )
 
 def sync( mat=None, source=None ):
-    '''Folds node editor edits into the entries and makes every variant of an MRL material
-    identical (the edited one wins). mat None: every game material. Returns notes.'''
     global _busy
     if _busy:
         return []
@@ -534,9 +509,6 @@ def problems( mat ):
 
 
 def adopt_legacy( mat ):
-    '''A material imported before entries existed: take its MRL entry from the source .mrl,
-    then lay the flags and images it was last built with over it. Socket values that differ
-    get pulled in by the next sync (there is no snapshot yet).'''
     d = json.loads( mat.get( 'mt_mrl', '{}' ) or '{}' )
     src = mat.get( 'mt_mrl_path', '' )
     info = None

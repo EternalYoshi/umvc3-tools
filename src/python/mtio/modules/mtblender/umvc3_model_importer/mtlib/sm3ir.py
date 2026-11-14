@@ -1,22 +1,3 @@
-"""SM3 shader -> scalar expression graph (SSA, hash consed).
-
-Turns a root.spkg shader into one scalar expression per output component, so it can be
-evaluated with numpy (to check it against sm3emu) or emitted as Blender shader nodes,
-which runs the game's own pixel shader 1:1 in Blender.
-
-    g = build(shader, ints={0: (count, 0, 0, 0)})   # int registers are needed for rep counts
-    g.outputs['oC0'] -> [node id x4];  g.kill -> node id or None (pixel discarded when > 0)
-
-Node kinds (tuple, first item is the kind):
-    ('k', value)                    literal
-    ('c', reg, comp)                float constant register c<reg>.<comp>, filled at bind time
-    ('v', reg, comp)                interpolator v<reg>.<comp>
-    ('vface',) ('vpos', comp)
-    ('op', name, a, b, ...)         add mul max min rcp rsq exp2 log2 frc sel(a>=0?b:c) lt ge
-                                    eq ne gt le pow neg abs sqrt
-    ('tex', sampler, kind, (x, y, z, w))  one texture fetch, kind = 2d / cube / volume
-    ('texc', tex node, comp)        component of a fetch
-"""
 import struct
 import numpy as np
 from .sm3 import regtype, TEXTYPE
@@ -209,7 +190,6 @@ class Builder:
         return self
 
     def _match(self, insts, i, open_ops, close_op, else_op=None):
-        """index of the matching close (and else) for the block opened at i"""
         depth = 0; els = None
         for j in range(i + 1, len(insts)):
             op = insts[j][0] & 0xffff

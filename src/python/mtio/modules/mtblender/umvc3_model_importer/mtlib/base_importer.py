@@ -597,14 +597,6 @@ class ModelImporterBase(ABC):
             self.logger.debug( 'could not mirror mrl commands: ' + str( e ) )
 
     def setMaterialCommandAttributes( self, editorMaterial, material: imMaterialInfo ):
-        '''Copies the rest of the mrl entry onto the material as custom properties
-        (the shading values are on the MT Character group).
-
-            tex_<slot>   texture path
-            flag_<name>  feature flag value
-            cb_<name>    constant buffer
-            smp_<name>   sampler state
-        '''
         target = editorMaterial.unwrap() if hasattr( editorMaterial, 'unwrap' ) else editorMaterial
         if target is None:
             return

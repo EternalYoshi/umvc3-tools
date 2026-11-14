@@ -199,9 +199,6 @@ def structural_fill(arm, mapping):
 # structure
 
 def structural_detect(arm):
-    """Work out which bone is which from the rig's shape alone, no names.
-    Returns ({id: bone}, [notes]). Uses bone head positions in world space and the
-    hierarchy; bones with no skin weight anywhere below them are ignored."""
     bones = arm.data.bones
     names = list(bones.keys())
     notes = []
@@ -499,10 +496,6 @@ def structural_detect(arm):
 
 
 def detect(arm, presets=None, preset=None):
-    """(preset key or None, {id: bone}, notes). The rig's shape decides by default; bone
-    names from a matching preset fill what the shape can't tell (face, twist helpers).
-    When a preset knows most of the body by name, its names win for those rows.
-    preset: None tries them all, 'NONE' ignores names."""
     presets = presets or load_presets()
     shape, notes = structural_detect(arm)
     key, named = None, {}
@@ -1220,7 +1213,6 @@ def read_bone_csv(path, arm):
 
 
 def write_bone_csv(path, arm):
-    """the current rows and fixed ids as BoneName,ID,SymmetricalName"""
     m = _mapping(arm)
     forced = _forced(arm)
     lines = ['BoneName,ID,SymmetricalName']
@@ -1348,7 +1340,6 @@ from bpy_extras.io_utils import ImportHelper, ExportHelper
 
 
 class SUB_OP_SkeletonLoadCSV(bpy.types.Operator, ImportHelper):
-    """Fill the rows from a .csv bone list (bone name, UMVC3 id, symmetrical opposite). Bones given an id outside the shared joints keep that id and symmetry when converted"""
     bl_idname = 'sub.umvc3_skeleton_load_csv'
     bl_label = 'Load CSV'
     bl_options = {'REGISTER', 'UNDO'}
